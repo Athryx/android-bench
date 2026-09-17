@@ -7,11 +7,46 @@ authors = [
     { name = "Jack Roscoe", email = "jack.x.roscoe@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "cuttle-cli",
+    "cuttle-types",
+    "kbench",
+    "kexploit-agent",
+    "kexploit-utils",
+    "ksandbox",
+    "pydantic>=2.11",
+    "python-dotenv>=1.2.2",
+    "typer>=0.27.2",
+]
 
 [project.scripts]
 android-bench = "android_bench:main"
 
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pytest>=8.4",
+]
+
+[tool.uv.sources]
+kbench = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kbench" }
+kexploit-agent = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kexploit_agent" }
+kexploit-utils = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kexploit_utils" }
+ksandbox = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/ksandbox" }
+cuttle-cli = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/cuttle_server/cuttle_cli" }
+cuttle-types = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/cuttle_server/cuttle_types" }
+
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["kbench", "kbench.*"]
+follow_untyped_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

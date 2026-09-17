@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.purdue.androidbench.grader">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="35" />
+    <application
+        android:allowBackup="false"
+        android:label="Android Bench Grader"
+        android:supportsRtl="true">
+        <receiver
+            android:name=".IntentReceiver"
+            android:exported="true" />
+        <activity
+            android:name=".IntentActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+        <service
+            android:name=".IntentService"
+            android:exported="true" />
+    </application>
+</manifest>
