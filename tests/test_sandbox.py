@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from kbench import GlobalRunState
+from ksandbox import DockerSandbox
 
 from android_bench.sandbox import AndroidBenchSandbox
 
@@ -18,7 +21,9 @@ class _Container:
         self.stopped = True
         self.running = False
 
-    def exec_sync(self, command: list[str], *, timeout_secs: int):
+    def exec_sync(
+        self, command: list[str], *, timeout_secs: int
+    ) -> SimpleNamespace:
         self.commands.append(command)
         return SimpleNamespace(exit_code=0, stdout=b"", stderr=b"")
 
@@ -30,17 +35,20 @@ class _CuttleClient:
     def stop(self, instance_id: str) -> None:
         raise RuntimeError("server reported force-stop timeout")
 
-    def list_instances(self):
-        return [SimpleNamespace(instance_id=value) for value in self.visible_ids]
+    def list_instances(self) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(instance_id=value, instance_name=f"name-{value}")
+            for value in self.visible_ids
+        ]
 
 
 def _sandbox(cuttle_client: _CuttleClient) -> AndroidBenchSandbox:
-    sandbox = object.__new__(AndroidBenchSandbox)
+    state = MagicMock(spec=GlobalRunState)
+    state.cuttle_client = cuttle_client
+    sandbox = AndroidBenchSandbox(state, "android-bench:test", "challenge6", [])
     sandbox._started = True
-    sandbox._stopped = False
     sandbox.cuttle_cli_device_id = "instance-1"
-    sandbox.sandbox = _Container()
-    sandbox.state = SimpleNamespace(cuttle_client=cuttle_client)
+    sandbox.sandbox = cast(DockerSandbox, _Container())
     return sandbox
 
 
@@ -50,7 +58,7 @@ def test_stop_accepts_force_stop_error_after_instance_disappears() -> None:
     sandbox.stop()
 
     assert sandbox._stopped
-    assert sandbox.sandbox.stopped
+    assert cast(_Container, sandbox.sandbox).stopped
 
 
 def test_stop_reraises_when_instance_is_still_visible() -> None:
@@ -65,7 +73,7 @@ def test_stabilize_device_enables_airplane_mode_before_provisioning() -> None:
 
     sandbox._stabilize_device()
 
-    assert sandbox.sandbox.commands == [
+    assert cast(_Container, sandbox.sandbox).commands == [
         ["adb", "-s", "cuttlefish:6000", "root"],
         ["adb", "-s", "cuttlefish:6000", "wait-for-device"],
         [
@@ -98,10 +106,9 @@ def test_start_enables_solver_internet_when_requested() -> None:
         adb_target="adb.internal:6520",
         instance=SimpleNamespace(instance_id="instance-1"),
     )
-    state = SimpleNamespace(
-        sandbox_provider=provider,
-        cuttle_client=cuttle_client,
-    )
+    state = MagicMock(spec=GlobalRunState)
+    state.sandbox_provider = provider
+    state.cuttle_client = cuttle_client
     sandbox = AndroidBenchSandbox(
         state,
         "android-bench:test",
@@ -118,4 +125,10 @@ def test_start_enables_solver_internet_when_requested() -> None:
         mounts=[],
         allow_internet=True,
         extra_hosts={"cuttlefish": "127.0.0.1"},
+    )
+    cuttle_client.start.assert_called_once_with(
+        "challenge6",
+        name=sandbox.cuttle_cli_instance_name,
+        load_apps=False,
+        unmanaged=True,
     )

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from cuttle_cli import CuttleClient
 from kbench import (
@@ -13,13 +11,12 @@ from kbench import (
     ChallengeResult,
     GlobalRunState,
     Score,
+    run_challenges,
 )
 from kexploit_agent import AgentGroup
 from ksandbox import DockerSandboxProvider, MountInfo
 
 from android_bench.sandbox import AndroidBenchSandbox
-
-logger = logging.getLogger(__name__)
 
 
 def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
@@ -51,7 +48,8 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             sandbox.sandbox,
             agent_group=state.run_group,
         )
-        score = challenge.run(ChallengeInstance(solution, agent, sandbox))
+        with state.manage_agent(agent):
+            score = challenge.run(ChallengeInstance(solution, agent, sandbox))
 
     result = ChallengeResult(score=score, runtime=time.perf_counter() - start_time)
     (solution / "results.json").write_text(result.model_dump_json(indent=2))
@@ -67,26 +65,18 @@ def run_benchmark(run: BenchmarkRun) -> BenchmarkResult:
         grader_group=AgentGroup(f"{run.name} graders"),
         solutions_folder=run.output_folder,
     )
-    challenge_results: dict[str, ChallengeResult] = {}
-    scores: dict[str, Score] = {}
     total_start = time.perf_counter()
-    max_workers = run.num_instances if run.num_instances and run.num_instances > 0 else None
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(run_challenge, state, challenge): challenge
-            for challenge in run.challenges
-        }
-        for future in as_completed(futures):
-            challenge = futures[future]
-            result = future.result()
-            challenge_results[challenge.name] = result
-            scores[challenge.name] = result.score
-            logger.info(
-                "Challenge %s finished in %.2fs with score %.4f",
-                challenge.name,
-                result.runtime,
-                result.score.score,
-            )
+    challenge_results = run_challenges(
+        state,
+        run.challenges,
+        run_name=run.name,
+        num_instances=run.num_instances,
+        challenge_runner=run_challenge,
+    )
+    scores: dict[str, Score] = {
+        challenge_name: result.score
+        for challenge_name, result in challenge_results.items()
+    }
 
     total_runtime = time.perf_counter() - total_start
     overall = (

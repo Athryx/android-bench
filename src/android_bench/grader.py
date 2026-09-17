@@ -449,10 +449,10 @@ def grade_attempt(
             sandbox.sandbox,
             agent_group=instance.sandbox.state.grader_group,
         )
-        try:
-            raw = grader.run(_assessment_prompt(response, capabilities, definition.package))
-        finally:
-            grader.close()
+        with instance.sandbox.state.manage_agent(grader):
+            raw = grader.run(
+                _assessment_prompt(response, capabilities, definition.package)
+            )
         parsed = _AssessmentResponse.model_validate(extract_json_object(raw))
         assessment = ExploitAssessment(
             **parsed.model_dump(),

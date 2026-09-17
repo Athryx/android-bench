@@ -37,7 +37,7 @@ uv run android-bench setup
 ```
 
 The UV lock pins KBench, KExploit Agent, KSandbox, KExploit Utils, Cuttle CLI, and Cuttle Types to
-Git commit `caaf3deab40b130901a1576180b250971337f8c6`, each from its repository subdirectory.
+Git commit `05871b72eee51d4544aef78c702686d18901de98`, each from its repository subdirectory.
 
 ## Run
 
