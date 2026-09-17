@@ -60,7 +60,7 @@ def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path)
     )
     challenge = AndroidAppChallenge(
         CHALLENGES[0],
-        ModelConfig(model=Model.GPT_5_6),
+        ModelConfig(model=Model.GPT_6_ASTRA),
         HarnessType.CODEX,
         max_reprompts=2,
     )
@@ -77,7 +77,7 @@ def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path)
 
 def test_prompt_names_all_graders_and_real_adb_host() -> None:
     challenge = AndroidAppChallenge(
-        CHALLENGES[0], ModelConfig(model=Model.GPT_5_6), HarnessType.CODEX
+        CHALLENGES[0], ModelConfig(model=Model.GPT_6_ASTRA), HarnessType.CODEX
     )
     prompt = challenge.system_prompt("cuttlefish:6000")
     assert "cuttlefish:6000" in prompt

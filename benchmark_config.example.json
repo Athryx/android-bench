@@ -3,8 +3,13 @@
   "num_instances": 4,
   "harness": "codex",
   "model_config": {
-    "model": "gpt-5.6",
-    "model_effort": "high"
+    "model": "gpt-6-astra",
+    "model_effort": "xhigh",
+    "temperature": 0.2,
+    "max_tokens": 65536,
+    "top_p": 0.95,
+    "timeout_seconds": 3600,
+    "thinking_budget": 32768
   },
   "max_reprompts": 2
 }

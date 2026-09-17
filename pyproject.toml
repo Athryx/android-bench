@@ -29,12 +29,12 @@ dev = [
 ]
 
 [tool.uv.sources]
-kbench = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kbench" }
-kexploit-agent = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kexploit_agent" }
-kexploit-utils = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/kexploit_utils" }
-ksandbox = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/ksandbox" }
-cuttle-cli = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/cuttle_server/cuttle_cli" }
-cuttle-types = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "12a32efd9757ead20b7698deab13b80cc5087bf6", subdirectory = "ingots_tools/cuttle_server/cuttle_types" }
+kbench = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/kbench" }
+kexploit-agent = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/kexploit_agent" }
+kexploit-utils = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/kexploit_utils" }
+ksandbox = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/ksandbox" }
+cuttle-cli = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/cuttle_server/cuttle_cli" }
+cuttle-types = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3", subdirectory = "ingots_tools/cuttle_server/cuttle_types" }
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]

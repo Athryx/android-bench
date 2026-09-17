@@ -37,7 +37,7 @@ uv run android-bench setup
 ```
 
 The UV lock pins KBench, KExploit Agent, KSandbox, KExploit Utils, Cuttle CLI, and Cuttle Types to
-Git commit `12a32efd9757ead20b7698deab13b80cc5087bf6`, each from its repository subdirectory.
+Git commit `8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3`, each from its repository subdirectory.
 
 ## Run
 
@@ -56,12 +56,23 @@ Omit `challenges` to run all 12, or select a subset by registry name:
   "challenges": ["firefox", "element"],
   "harness": "codex",
   "model_config": {
-    "model": "gpt-5.6",
-    "model_effort": "high"
+    "model": "gpt-6-astra",
+    "model_effort": "xhigh",
+    "temperature": 0.2,
+    "max_tokens": 65536,
+    "top_p": 0.95,
+    "timeout_seconds": 3600,
+    "thinking_budget": 32768
   },
   "max_reprompts": 2
 }
 ```
+
+For OpenRouter-backed models, `model_config` also accepts either a single
+`openrouter_provider` slug or an `openrouter_routing` object with `order`,
+`only`, `ignore`, `allow_fallbacks`, `require_parameters`, `data_collection`,
+and `zdr`. Keep API keys in `.env`; do not put `api_key_override` in committed
+benchmark configuration.
 
 The results directory must be new or empty. Each challenge records KBench results plus detailed
 per-attempt audits under `<results>/<challenge>/grading/`.
