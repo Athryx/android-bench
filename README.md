@@ -37,7 +37,7 @@ uv run android-bench setup
 ```
 
 The UV lock pins KBench, KExploit Agent, KSandbox, KExploit Utils, Cuttle CLI, and Cuttle Types to
-Git commit `8e5d6b13c5d1d4e3b4e98f4c71c34764294169b3`, each from its repository subdirectory.
+Git commit `caaf3deab40b130901a1576180b250971337f8c6`, each from its repository subdirectory.
 
 ## Run
 
@@ -55,6 +55,7 @@ Omit `challenges` to run all 12, or select a subset by registry name:
   "num_instances": 2,
   "challenges": ["firefox", "element"],
   "harness": "codex",
+  "internet_enabled": true,
   "model_config": {
     "model": "gpt-6-astra",
     "model_effort": "xhigh",
@@ -67,6 +68,10 @@ Omit `challenges` to run all 12, or select a subset by registry name:
   "max_reprompts": 2
 }
 ```
+
+`internet_enabled` is one global switch applied to every selected challenge.
+It controls general Internet access for the solver Docker sandboxes; Android
+guest networking remains disabled for benchmark stability.
 
 For OpenRouter-backed models, `model_config` also accepts either a single
 `openrouter_provider` slug or an `openrouter_routing` object with `order`,

@@ -84,7 +84,7 @@ class AndroidBenchSandbox(AdbSandbox):
             self.sandbox = self.state.sandbox_provider.create(
                 self.docker_tag,
                 mounts=self.mounts,
-                allow_internet=False,
+                allow_internet=self.internet_enabled,
                 extra_hosts=extra_hosts,
             )
             self.sandbox.start()

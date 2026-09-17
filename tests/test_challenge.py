@@ -83,3 +83,16 @@ def test_prompt_names_all_graders_and_real_adb_host() -> None:
     assert "cuttlefish:6000" in prompt
     for capability in Capability:
         assert capability.value in prompt
+    assert "no general Internet access" in prompt
+
+
+def test_internet_enabled_property_updates_prompt() -> None:
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        configured_internet_enabled=True,
+    )
+
+    assert challenge.internet_enabled
+    assert "has general Internet access" in challenge.system_prompt("cuttlefish:6000")

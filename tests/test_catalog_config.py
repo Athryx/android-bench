@@ -35,12 +35,14 @@ def test_config_parses_runtime_model(tmp_path: Path) -> None:
           "num_instances": 2,
           "challenges": ["firefox", "vlc"],
           "harness": "pi",
+          "internet_enabled": true,
           "model_config": {"model": "deepseek-v4.1-flash"},
           "max_reprompts": 3
         }"""
     )
     config = BenchmarkConfig.from_file(path)
     assert config.name == "smoke"
+    assert config.internet_enabled
     assert config.agent_model_config.model.value == "deepseek/deepseek-v4.1-flash"
     assert config.max_reprompts == 3
 
@@ -51,6 +53,7 @@ def test_example_config_uses_extended_model_fields() -> None:
     )
 
     assert config.agent_model_config.model.value == "gpt-6-astra"
+    assert config.internet_enabled
     assert config.agent_model_config.model_effort is not None
     assert config.agent_model_config.model_effort.value == "xhigh"
     assert config.agent_model_config.temperature == 0.2

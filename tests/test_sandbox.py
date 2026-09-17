@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -80,3 +81,41 @@ def test_stabilize_device_enables_airplane_mode_before_provisioning() -> None:
         ["adb", "-s", "cuttlefish:6000", "shell", "svc", "wifi", "disable"],
         ["adb", "-s", "cuttlefish:6000", "shell", "svc", "data", "disable"],
     ]
+
+
+def test_start_enables_solver_internet_when_requested() -> None:
+    container = MagicMock()
+    container.running = True
+    container.exec_sync.return_value = SimpleNamespace(
+        exit_code=0,
+        stdout=b"",
+        stderr=b"",
+    )
+    provider = MagicMock()
+    provider.create.return_value = container
+    cuttle_client = MagicMock()
+    cuttle_client.start.return_value = SimpleNamespace(
+        adb_target="adb.internal:6520",
+        instance=SimpleNamespace(instance_id="instance-1"),
+    )
+    state = SimpleNamespace(
+        sandbox_provider=provider,
+        cuttle_client=cuttle_client,
+    )
+    sandbox = AndroidBenchSandbox(
+        state,
+        "android-bench:test",
+        "challenge6",
+        [],
+        internet_enabled=True,
+    )
+
+    with patch.object(AndroidBenchSandbox, "_stabilize_device"):
+        sandbox.start()
+
+    provider.create.assert_called_once_with(
+        "android-bench:test",
+        mounts=[],
+        allow_internet=True,
+        extra_hosts={"cuttlefish": "127.0.0.1"},
+    )

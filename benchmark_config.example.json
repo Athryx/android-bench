@@ -2,6 +2,7 @@
   "name": "challenge-6.1-eval",
   "num_instances": 4,
   "harness": "codex",
+  "internet_enabled": true,
   "model_config": {
     "model": "gpt-6-astra",
     "model_effort": "xhigh",
