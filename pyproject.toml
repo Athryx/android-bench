@@ -29,12 +29,12 @@ dev = [
 ]
 
 [tool.uv.sources]
-kbench = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/kbench" }
-kexploit-agent = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/kexploit_agent" }
-kexploit-utils = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/kexploit_utils" }
-ksandbox = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/ksandbox" }
-cuttle-cli = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/cuttle_server/cuttle_cli" }
-cuttle-types = { git = "https://github.com/purseclab/kernelcveanalysis", rev = "05871b72eee51d4544aef78c702686d18901de98", subdirectory = "ingots_tools/cuttle_server/cuttle_types" }
+kbench = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/kbench" }
+kexploit-agent = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/kexploit_agent" }
+kexploit-utils = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/kexploit_utils" }
+ksandbox = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/ksandbox" }
+cuttle-cli = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/cuttle_server/cuttle_cli" }
+cuttle-types = { git = "https://github.com/purseclab/kernelcveanalysis", branch = "main", subdirectory = "ingots_tools/cuttle_server/cuttle_types" }
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
