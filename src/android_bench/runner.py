@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import time
+from pathlib import Path
 
 from cuttle_cli import CuttleClient
 from kbench import (
@@ -13,7 +15,7 @@ from kbench import (
     Score,
     run_challenges,
 )
-from kexploit_agent import AgentGroup
+from kexploit_agent import AgentGroup, summarize_log
 from ksandbox import DockerSandboxProvider, MountInfo
 
 from android_bench.sandbox import AndroidBenchSandbox
@@ -22,6 +24,9 @@ from android_bench.sandbox import AndroidBenchSandbox
 def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
     solution = state.solutions_folder / challenge.name
     solution.mkdir(parents=True, exist_ok=True)
+    prepare_solution = getattr(challenge, "prepare_solution", None)
+    if callable(prepare_solution):
+        prepare_solution(solution)
     solution_mount = MountInfo(
         src_folder=solution,
         name="solution",
@@ -48,8 +53,17 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             sandbox.sandbox,
             agent_group=state.run_group,
         )
-        with state.manage_agent(agent):
-            score = challenge.run(ChallengeInstance(solution, agent, sandbox))
+        try:
+            with state.manage_agent(agent):
+                score = challenge.run(ChallengeInstance(solution, agent, sandbox))
+        finally:
+            history_path = getattr(agent, "history_path", None)
+            if isinstance(history_path, (str, Path)):
+                history_file = Path(history_path)
+                if history_file.is_file():
+                    if getattr(challenge, "summarize", False) is True:
+                        summarize_log(history_file)
+                    shutil.copy2(history_file, solution / "agent_transcript.jsons")
 
     result = ChallengeResult(score=score, runtime=time.perf_counter() - start_time)
     (solution / "results.json").write_text(result.model_dump_json(indent=2))

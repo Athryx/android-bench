@@ -49,3 +49,24 @@ def test_bundle_selector_keeps_density_and_feature_splits() -> None:
         "split_feature.apk",
         "split_feature.config.en.apk",
     ]
+
+
+def test_installation_candidates_adds_missing_challenge_artifact(
+    tmp_path: Path,
+) -> None:
+    installer = load_installer()
+    app_dir = tmp_path / "apps"
+    challenge_dir = tmp_path / "challenge"
+    app_dir.mkdir()
+    challenge_dir.mkdir()
+    bulk_app = app_dir / "bulk.apk"
+    bulk_app.write_bytes(b"bulk")
+    challenge_copy = challenge_dir / "bulk.apk"
+    challenge_copy.write_bytes(b"analysis")
+    challenge_target = challenge_dir / "test_app.apk"
+    challenge_target.write_bytes(b"target")
+
+    assert installer.installation_candidates(app_dir, challenge_dir) == [
+        bulk_app,
+        challenge_target,
+    ]

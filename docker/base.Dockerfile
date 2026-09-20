@@ -96,6 +96,7 @@ RUN bash /tmp/grader-app/build.sh /opt/android-bench/grader.apk \
 # provisioning inside the benchmark sandbox so every fresh VM still receives all 12 target apps.
 COPY apps /opt/android-bench/apps
 COPY --chmod=0755 docker/install_apps.py /usr/local/bin/android-bench-install-apps
-RUN chmod -R a+rwX /opt/android-bench/apps
+RUN rm -f /opt/android-bench/apps/test_app.apk \
+    && chmod -R a+rwX /opt/android-bench/apps
 
 WORKDIR /challenge

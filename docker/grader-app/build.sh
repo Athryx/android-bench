@@ -3,7 +3,8 @@ set -euo pipefail
 
 output=${1:?output APK path is required}
 app_dir=$(cd "$(dirname "$0")" && pwd)
-build_dir=${app_dir}/build
+build_dir=$(mktemp -d -t android-bench-grader.XXXXXX)
+trap 'rm -rf "${build_dir}"' EXIT
 android_jar=${ANDROID_SDK_ROOT}/platforms/android-35/android.jar
 build_tools=${ANDROID_SDK_ROOT}/build-tools/35.0.0
 

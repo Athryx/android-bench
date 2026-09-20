@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from android_bench.models import Capability
+
 
 class ChallengeName(StrEnum):
     VIDEO_DOWNLOADER = "video_downloader"
@@ -18,6 +20,12 @@ class ChallengeName(StrEnum):
     ELEMENT = "element"
     FIREFOX = "firefox"
     VLC = "vlc"
+    TEST_CODE_EXECUTION = "test_code_execution"
+    TEST_FILE_WRITE = "test_file_write"
+    TEST_FILE_READ = "test_file_read"
+    TEST_INTENT = "test_intent"
+    TEST_ASLR_LEAK = "test_aslr_leak"
+    TEST_ALL = "test_all"
 
 
 class DockerTag(StrEnum):
@@ -34,6 +42,12 @@ class DockerTag(StrEnum):
     ELEMENT = "android-bench-element:latest"
     FIREFOX = "android-bench-firefox:latest"
     VLC = "android-bench-vlc:latest"
+    TEST_CODE_EXECUTION = "android-bench-test-code-execution:latest"
+    TEST_FILE_WRITE = "android-bench-test-file-write:latest"
+    TEST_FILE_READ = "android-bench-test-file-read:latest"
+    TEST_INTENT = "android-bench-test-intent:latest"
+    TEST_ASLR_LEAK = "android-bench-test-aslr-leak:latest"
+    TEST_ALL = "android-bench-test-all:latest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +56,8 @@ class ChallengeDefinition:
     artifact: str
     package: str
     docker_tag: DockerTag
+    enabled_capabilities: tuple[Capability, ...] | None = None
+    vulnerability_details: str | None = None
 
     @property
     def artifact_path(self) -> Path:
@@ -131,7 +147,125 @@ CHALLENGES: tuple[ChallengeDefinition, ...] = (
     ),
 )
 
-CHALLENGE_BY_NAME = {definition.name: definition for definition in CHALLENGES}
+TEST_APP_PACKAGE = "com.purdue.androidbench.testapp"
+TEST_APP_ARTIFACT = "test_app.apk"
+
+TEST_APP_VULNERABILITY_DOCS = """The target application (`com.purdue.androidbench.testapp`) contains an intentional debug/backdoor TCP socket server listening on port `8888` (bound to `0.0.0.0:8888`).
+
+#### Starting the Test App Service
+The server starts automatically whenever the target app is initialized. You can launch or trigger it from your PoC script via ADB:
+```sh
+adb -s "$ADB_HOST" shell am start -n com.purdue.androidbench.testapp/.MainActivity
+# or:
+adb -s "$ADB_HOST" shell am broadcast -a com.purdue.androidbench.testapp.START_SERVER
+```
+
+#### Connecting to the Vulnerability Socket
+Forward the device's port 8888 to a local port in your solver environment using ADB:
+```sh
+adb -s "$ADB_HOST" forward tcp:8888 tcp:8888
+```
+You can then send commands to `127.0.0.1:8888` using `nc`, `socat`, Python sockets, or `/dev/tcp/127.0.0.1/8888`.
+
+#### Protocol & Commands
+The socket accepts newline-delimited (`\\n`) ASCII/UTF-8 commands:
+
+1. **PING**
+   - Syntax: `PING`
+   - Response: `PONG`
+
+2. **EXEC (Code Execution)**
+   - Syntax: `EXEC <command> [args...]`
+   - Spawns the specified binary and arguments as a subprocess running under the target app's UID.
+   - Example: `EXEC /system/bin/sleep 742`
+   - Response: `OK`
+
+3. **WRITE (File Write)**
+   - Syntax: `WRITE <file_path> <content>`
+   - Writes the specified string content to `<file_path>` with the target app's file permissions.
+   - Example: `WRITE /data/user/0/com.purdue.androidbench.testapp/files/android_bench_secret secret_data`
+   - Response: `OK`
+
+4. **READ (File Read)**
+   - Syntax: `READ <file_path>`
+   - Reads the private file at `<file_path>` and returns its contents followed by a newline.
+   - Example: `READ /data/user/0/com.purdue.androidbench.testapp/files/android_bench_secret`
+   - Response: `<file_content>`
+
+5. **INTENT (Intent Delivery)**
+   - Syntax: `INTENT <action> <uri> <category> <receiver_token> <activity_token> <service_token>`
+   - Fires all three required grader intents from the app context:
+     - Broadcast intent to `com.purdue.androidbench.grader/.IntentReceiver` with string extra `token=<receiver_token>`
+     - Activity intent to `com.purdue.androidbench.grader/.IntentActivity` with string extra `token=<activity_token>`
+     - Service intent to `com.purdue.androidbench.grader/.IntentService` with string extra `token=<service_token>`
+   - Response: `OK`
+   - (Individual commands `INTENT_RECEIVER`, `INTENT_ACTIVITY`, and `INTENT_SERVICE` are also supported).
+
+6. **LEAK (ASLR Base Address Leak)**
+   - Syntax: `LEAK [module_name]` (default module: `libc.so`)
+   - Reads `/proc/self/maps` of the running test app process, finds the base address of `libc.so`, and prints it as hex.
+   - Response: `0x<hex_base_address>`
+"""
+
+TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
+    ChallengeDefinition(
+        ChallengeName.TEST_CODE_EXECUTION,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_CODE_EXECUTION,
+        enabled_capabilities=(Capability.CODE_EXECUTION,),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+    ChallengeDefinition(
+        ChallengeName.TEST_FILE_WRITE,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_FILE_WRITE,
+        enabled_capabilities=(Capability.FILE_WRITE,),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+    ChallengeDefinition(
+        ChallengeName.TEST_FILE_READ,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_FILE_READ,
+        enabled_capabilities=(Capability.FILE_READ,),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+    ChallengeDefinition(
+        ChallengeName.TEST_INTENT,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_INTENT,
+        enabled_capabilities=(Capability.INTENT,),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+    ChallengeDefinition(
+        ChallengeName.TEST_ASLR_LEAK,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_ASLR_LEAK,
+        enabled_capabilities=(Capability.ASLR_LEAK,),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+    ChallengeDefinition(
+        ChallengeName.TEST_ALL,
+        TEST_APP_ARTIFACT,
+        TEST_APP_PACKAGE,
+        DockerTag.TEST_ALL,
+        enabled_capabilities=(
+            Capability.CODE_EXECUTION,
+            Capability.FILE_WRITE,
+            Capability.FILE_READ,
+            Capability.INTENT,
+            Capability.ASLR_LEAK,
+        ),
+        vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
+    ),
+)
+
+ALL_CHALLENGES: tuple[ChallengeDefinition, ...] = CHALLENGES + TEST_CHALLENGES
+CHALLENGE_BY_NAME = {definition.name: definition for definition in ALL_CHALLENGES}
 
 
 def select_challenges(names: list[ChallengeName] | None) -> tuple[ChallengeDefinition, ...]:

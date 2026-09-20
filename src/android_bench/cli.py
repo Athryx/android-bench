@@ -64,7 +64,9 @@ def run_command(
             configured_model=benchmark_config.agent_model_config,
             configured_harness=benchmark_config.harness,
             configured_internet_enabled=benchmark_config.internet_enabled,
+            configured_summarize=benchmark_config.summarize,
             max_reprompts=benchmark_config.max_reprompts,
+            enabled_capabilities=definition.enabled_capabilities,
         )
         for definition in select_challenges(benchmark_config.challenges)
     ]

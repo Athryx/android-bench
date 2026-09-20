@@ -3,6 +3,7 @@
   "num_instances": 4,
   "harness": "codex",
   "internet_enabled": true,
+  "summarize": true,
   "model_config": {
     "model": "gpt-6-astra",
     "model_effort": "xhigh",

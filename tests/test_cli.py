@@ -22,6 +22,7 @@ def test_run_applies_global_internet_setting_to_every_challenge(
           "num_instances": 1,
           "harness": "codex",
           "internet_enabled": true,
+          "summarize": true,
           "model_config": {"model": "gpt-6-astra"}
         }"""
     )
@@ -42,3 +43,4 @@ def test_run_applies_global_internet_setting_to_every_challenge(
     run = run_benchmark.call_args.args[0]
     assert len(run.challenges) == 2
     assert all(challenge.internet_enabled for challenge in run.challenges)
+    assert all(challenge.summarize for challenge in run.challenges)

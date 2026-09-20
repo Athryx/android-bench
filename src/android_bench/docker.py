@@ -1,12 +1,51 @@
-from __future__ import annotations
+import subprocess
+from pathlib import Path
 
 from kexploit_utils import build_docker
 
-from android_bench.catalog import CHALLENGES, DockerTag, repository_root
+from android_bench.catalog import (
+    ALL_CHALLENGES,
+    CHALLENGES,
+    TEST_CHALLENGES,
+    ChallengeDefinition,
+    DockerTag,
+    repository_root,
+)
 
 
-def validate_artifacts() -> None:
-    missing = [str(item.artifact_path) for item in CHALLENGES if not item.artifact_path.is_file()]
+def ensure_test_app_built() -> Path:
+    root = repository_root()
+    apk_path = root / "apps" / "test_app.apk"
+    if apk_path.is_file():
+        return apk_path
+    apk_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{root}:/workspace",
+            "-w",
+            "/workspace",
+            DockerTag.BASE.value,
+            "bash",
+            "docker/test-app/build.sh",
+            "apps/test_app.apk",
+        ],
+        check=True,
+    )
+    return apk_path
+
+
+def validate_artifacts(
+    challenges: tuple[ChallengeDefinition, ...] = ALL_CHALLENGES,
+) -> None:
+    missing = [
+        str(item.artifact_path)
+        for item in challenges
+        if not item.artifact_path.is_file()
+    ]
     if missing:
         formatted = "\n".join(f"  - {path}" for path in missing)
         raise FileNotFoundError(f"Missing challenge artifacts:\n{formatted}")
@@ -14,7 +53,9 @@ def validate_artifacts() -> None:
 
 def setup_images() -> None:
     root = repository_root()
-    validate_artifacts()
+    validate_artifacts(CHALLENGES)
     build_docker(root, DockerTag.BASE, dockerfile=root / "docker" / "base.Dockerfile")
-    for challenge in CHALLENGES:
+    ensure_test_app_built()
+    validate_artifacts(TEST_CHALLENGES)
+    for challenge in ALL_CHALLENGES:
         build_docker(root, challenge.docker_tag, dockerfile=challenge.dockerfile_path)

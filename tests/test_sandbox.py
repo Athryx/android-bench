@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from kbench import GlobalRunState
@@ -68,29 +68,6 @@ def test_stop_reraises_when_instance_is_still_visible() -> None:
         sandbox.stop()
 
 
-def test_stabilize_device_enables_airplane_mode_before_provisioning() -> None:
-    sandbox = _sandbox(_CuttleClient())
-
-    sandbox._stabilize_device()
-
-    assert cast(_Container, sandbox.sandbox).commands == [
-        ["adb", "-s", "cuttlefish:6000", "root"],
-        ["adb", "-s", "cuttlefish:6000", "wait-for-device"],
-        [
-            "adb",
-            "-s",
-            "cuttlefish:6000",
-            "shell",
-            "cmd",
-            "connectivity",
-            "airplane-mode",
-            "enable",
-        ],
-        ["adb", "-s", "cuttlefish:6000", "shell", "svc", "wifi", "disable"],
-        ["adb", "-s", "cuttlefish:6000", "shell", "svc", "data", "disable"],
-    ]
-
-
 def test_start_enables_solver_internet_when_requested() -> None:
     container = MagicMock()
     container.running = True
@@ -117,8 +94,7 @@ def test_start_enables_solver_internet_when_requested() -> None:
         internet_enabled=True,
     )
 
-    with patch.object(AndroidBenchSandbox, "_stabilize_device"):
-        sandbox.start()
+    sandbox.start()
 
     provider.create.assert_called_once_with(
         "android-bench:test",

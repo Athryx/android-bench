@@ -1,0 +1,12 @@
+{
+  "name": "test",
+  "num_instances": 1,
+  "challenges": ["test_all"],
+  "harness": "pi_plus",
+  "internet_enabled": false,
+  "model_config": {
+    "model": "deepseek-v4.1-flash",
+    "model_effort": "high"
+  },
+  "max_reprompts": 2
+}

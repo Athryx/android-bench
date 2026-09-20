@@ -17,6 +17,7 @@ class BenchmarkConfig(BaseModel):
     challenges: list[ChallengeName] | None = None
     harness: HarnessType
     internet_enabled: bool = False
+    summarize: bool = False
     agent_model_config: ModelConfig = Field(alias="model_config")
     max_reprompts: int = Field(default=2, ge=0)
 

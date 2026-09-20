@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
 APP_DIR = Path("/opt/android-bench/apps")
+CHALLENGE_DIR = Path("/challenge")
+APP_SUFFIXES = {".apk", ".apkm", ".xapk"}
 LANGUAGES = {
     "ar",
     "de",
@@ -74,6 +76,22 @@ def install_archive(serial: str, archive_path: Path, primary_abi: str) -> None:
             run_adb(serial, "install-multiple", "-t", "-r", *extracted)
 
 
+def installation_candidates(
+    app_dir: Path = APP_DIR, challenge_dir: Path = CHALLENGE_DIR
+) -> list[Path]:
+    """Return bulk apps plus any challenge artifact missing from the bulk set."""
+    candidates = {
+        path.name: path
+        for path in sorted(app_dir.iterdir())
+        if path.is_file() and path.suffix.lower() in APP_SUFFIXES
+    }
+    if challenge_dir.is_dir():
+        for path in sorted(challenge_dir.iterdir()):
+            if path.is_file() and path.suffix.lower() in APP_SUFFIXES:
+                candidates.setdefault(path.name, path)
+    return [candidates[name] for name in sorted(candidates)]
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: android-bench-install-apps <adb-serial>")
@@ -84,14 +102,15 @@ def main() -> None:
     if primary_abi not in ABIS:
         raise RuntimeError(f"unsupported Android primary ABI: {primary_abi!r}")
 
-    for app_path in sorted(APP_DIR.iterdir()):
+    for app_path in installation_candidates():
         suffix = app_path.suffix.lower()
         print(f"Installing {app_path.name}", flush=True)
         if suffix == ".apk":
             run_adb(serial, "install", "-t", "-r", str(app_path))
         elif suffix in {".xapk", ".apkm"}:
             install_archive(serial, app_path, primary_abi)
-        app_path.unlink()
+        if app_path.parent == APP_DIR:
+            app_path.unlink()
 
 
 if __name__ == "__main__":
