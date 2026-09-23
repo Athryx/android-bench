@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import json
 import shutil
 import time
 from pathlib import Path
@@ -18,6 +17,14 @@ from kbench import (
 from kexploit_agent import AgentGroup, summarize_log
 from ksandbox import DockerSandboxProvider, MountInfo
 
+from android_bench.grader import format_reprompt, get_attempt_issues
+from android_bench.models import (
+    AndroidBenchmarkResult,
+    AndroidChallengeResult,
+    AndroidExploitScore,
+    Capability,
+    TestGraderResult,
+)
 from android_bench.sandbox import AndroidBenchSandbox
 
 
@@ -52,6 +59,7 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             challenge.system_prompt(sandbox.container_adb_host),
             sandbox.sandbox,
             agent_group=state.run_group,
+            limits=getattr(challenge, "limits", None),
         )
         try:
             with state.manage_agent(agent):
@@ -61,11 +69,21 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             if isinstance(history_path, (str, Path)):
                 history_file = Path(history_path)
                 if history_file.is_file():
-                    if getattr(challenge, "summarize", False) is True:
-                        summarize_log(history_file)
-                    shutil.copy2(history_file, solution / "agent_transcript.jsons")
+                    try:
+                        if getattr(challenge, "summarize", False) is True:
+                            summarize_log(history_file)
+                    finally:
+                        shutil.copy2(
+                            history_file,
+                            state.solutions_folder / f"{challenge.name}_transcript.json",
+                        )
 
-    result = ChallengeResult(score=score, runtime=time.perf_counter() - start_time)
+    limit_exceeded = getattr(score, "limit_exceeded", None)
+    result = AndroidChallengeResult(
+        score=score,
+        runtime=time.perf_counter() - start_time,
+        limit_exceeded=limit_exceeded,
+    )
     (solution / "results.json").write_text(result.model_dump_json(indent=2))
     return result
 
@@ -91,6 +109,11 @@ def run_benchmark(run: BenchmarkRun) -> BenchmarkResult:
         challenge_name: result.score
         for challenge_name, result in challenge_results.items()
     }
+    limits_exceeded: dict[str, str] = {
+        challenge_name: limit_msg
+        for challenge_name, result in challenge_results.items()
+        if (limit_msg := getattr(result, "limit_exceeded", None)) is not None
+    }
 
     total_runtime = time.perf_counter() - total_start
     overall = (
@@ -99,13 +122,235 @@ def run_benchmark(run: BenchmarkRun) -> BenchmarkResult:
         if challenge_results
         else 0.0
     )
-    benchmark_result = BenchmarkResult(
+    benchmark_result = AndroidBenchmarkResult(
         overall_score=overall,
         total_runtime=total_runtime,
         scores=scores,
         results=challenge_results,
+        limits_exceeded=limits_exceeded,
     )
     (run.output_folder / "results.json").write_text(
         benchmark_result.model_dump_json(indent=2)
     )
     return benchmark_result
+
+
+def extract_final_response(transcript_path: Path) -> str:
+    content = transcript_path.read_text(encoding="utf-8")
+    events: list[object] = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+            if isinstance(parsed, list):
+                events.extend(parsed)
+            else:
+                events.append(parsed)
+        except json.JSONDecodeError:
+            pass
+
+    if not events:
+        try:
+            data = json.loads(content)
+            if isinstance(data, list):
+                events.extend(data)
+            elif isinstance(data, dict):
+                events.append(data)
+        except json.JSONDecodeError:
+            pass
+
+    if not events:
+        raise ValueError(f"Unable to parse transcript from {transcript_path}")
+
+    # In multi-agent traces (Trace v2), identify the root agent (parent_agent_id is None).
+    root_agent_id: str | None = None
+    for event in events:
+        if (
+            isinstance(event, dict)
+            and event.get("kind") == "agent_start"
+            and event.get("parent_agent_id") is None
+        ):
+            root_agent_id = event.get("agent_id")
+            break
+
+    # If root_agent_id is known, check root agent's ai_text first.
+    if root_agent_id is not None:
+        for event in reversed(events):
+            if (
+                isinstance(event, dict)
+                and event.get("kind") == "ai_text"
+                and event.get("agent_id") == root_agent_id
+            ):
+                text = event.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text
+
+        for event in reversed(events):
+            if (
+                isinstance(event, dict)
+                and event.get("kind") == "ai_tool_call"
+                and event.get("tool_name") == "agent_out"
+                and event.get("agent_id") == root_agent_id
+            ):
+                args = event.get("args")
+                if isinstance(args, dict):
+                    text = args.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return text
+
+    for event in reversed(events):
+        if isinstance(event, dict) and event.get("kind") == "ai_text":
+            text = event.get("text")
+            if isinstance(text, str) and text.strip():
+                return text
+
+    for event in reversed(events):
+        if (
+            isinstance(event, dict)
+            and event.get("kind") == "ai_tool_call"
+            and event.get("tool_name") == "agent_out"
+        ):
+            args = event.get("args")
+            if isinstance(args, dict):
+                text = args.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text
+
+    for event in reversed(events):
+        if isinstance(event, dict):
+            for key in ("response", "final_response", "content"):
+                val = event.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val
+
+    raise ValueError(f"No agent response found in transcript {transcript_path}")
+
+
+def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
+    solution = state.solutions_folder / challenge.name
+    if not solution.is_dir():
+        raise FileNotFoundError(f"Challenge solution directory not found: {solution}")
+
+    transcript_path = state.solutions_folder / f"{challenge.name}_transcript.json"
+    if not transcript_path.is_file():
+        transcript_path = state.solutions_folder / f"{challenge.name}_transcript.jsons"
+    if not transcript_path.is_file():
+        raise FileNotFoundError(f"Challenge transcript not found: {transcript_path}")
+
+    existing_limit: str | None = None
+    existing_results_file = solution / "results.json"
+    if existing_results_file.is_file():
+        try:
+            existing_data = json.loads(existing_results_file.read_text())
+            existing_limit = existing_data.get("limit_exceeded")
+            if not existing_limit and isinstance(existing_data.get("score"), dict):
+                existing_limit = existing_data["score"].get("limit_exceeded")
+        except Exception:
+            pass
+
+    response = extract_final_response(transcript_path)
+    start_time = time.perf_counter()
+
+    grade_solution = getattr(challenge, "grade_solution", None)
+    if not callable(grade_solution):
+        raise TypeError(f"Challenge {challenge.name} does not support grade_solution")
+
+    graded, record = grade_solution((state, solution), response, attempt=1)
+
+    definition = getattr(challenge, "definition", None)
+    package = getattr(definition, "package", "unknown")
+
+    attempted: set[Capability] = getattr(graded, "attempted", set())
+    issues = get_attempt_issues(
+        graded.capabilities, graded.assessment, attempted
+    )
+
+    if not issues:
+        score = AndroidExploitScore(
+            challenge=challenge.name,
+            package=package,
+            capabilities=graded.capabilities,
+            assessment=graded.assessment,
+            attempts=[record],
+            reprompts_used=0,
+            disclosure_resolved=True,
+            reprompt=None,
+            limit_exceeded=existing_limit,
+        )
+    else:
+        reprompt_msg = format_reprompt(
+            graded.capabilities, graded.assessment, attempted
+        )
+        score = AndroidExploitScore(
+            challenge=challenge.name,
+            package=package,
+            capabilities=graded.capabilities,
+            assessment=graded.assessment,
+            attempts=[record],
+            reprompts_used=0,
+            disclosure_resolved=False,
+            reprompt=reprompt_msg,
+            limit_exceeded=existing_limit,
+        )
+
+    return AndroidChallengeResult(
+        score=score,
+        runtime=time.perf_counter() - start_time,
+        limit_exceeded=existing_limit,
+    )
+
+
+def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
+    run.output_folder.mkdir(exist_ok=True, parents=True)
+    state = GlobalRunState(
+        sandbox_provider=DockerSandboxProvider.get(),
+        cuttle_client=CuttleClient.from_config(),
+        run_group=AgentGroup(run.name),
+        grader_group=AgentGroup(f"{run.name} graders"),
+        solutions_folder=run.output_folder,
+    )
+    total_start = time.perf_counter()
+    challenge_results = run_challenges(
+        state,
+        run.challenges,
+        run_name=f"{run.name} (test-grader)",
+        num_instances=run.num_instances,
+        challenge_runner=grade_existing_challenge,
+    )
+    scores: dict[str, Score] = {
+        challenge_name: result.score
+        for challenge_name, result in challenge_results.items()
+    }
+    reprompts: dict[str, str] = {
+        challenge_name: result.score.reprompt
+        for challenge_name, result in challenge_results.items()
+        if isinstance(result.score, AndroidExploitScore) and result.score.reprompt is not None
+    }
+    limits_exceeded: dict[str, str] = {
+        challenge_name: limit_msg
+        for challenge_name, result in challenge_results.items()
+        if (limit_msg := getattr(result, "limit_exceeded", None)) is not None
+    }
+
+    total_runtime = time.perf_counter() - total_start
+    overall = (
+        sum(result.score.score for result in challenge_results.values())
+        / len(challenge_results)
+        if challenge_results
+        else 0.0
+    )
+    grader_result = TestGraderResult(
+        overall_score=overall,
+        total_runtime=total_runtime,
+        scores=scores,
+        results=challenge_results,
+        reprompts=reprompts,
+        limits_exceeded=limits_exceeded,
+    )
+    (run.output_folder / "test_grader_results.json").write_text(
+        grader_result.model_dump_json(indent=2)
+    )
+    return grader_result
+

@@ -76,7 +76,7 @@ It controls general Internet access for the solver Docker sandboxes. Android
 guest networking follows the Cuttlefish template's network configuration.
 
 When `summarize` is `true`, the completed agent trace is summarized in place
-before it is copied to `<results>/<challenge>/agent_transcript.jsons`. Both the
+before it is copied to `<results>/<challenge>_transcript.json`. Both the
 original trace and the results copy therefore contain the generated summaries.
 Trace summarization uses DeepSeek V4.1 Flash through OpenRouter and requires
 `OPENROUTER_API_KEY`. The default is `false`.
@@ -87,8 +87,44 @@ For OpenRouter-backed models, `model_config` also accepts either a single
 and `zdr`. Keep API keys in `.env`; do not put `api_key_override` in committed
 benchmark configuration.
 
-The results directory must be new or empty. Each challenge records KBench results plus detailed
+For standard benchmark execution, the results directory must be new or empty. Each challenge records KBench results plus detailed
 per-attempt audits under `<results>/<challenge>/grading/`.
+
+### Execution Limits
+
+Limits can be configured per benchmark run to enforce budgets across tokens, agent turns, time, and API cost:
+- `token_limit`: Maximum total tokens consumed across agent calls.
+- `turn_limit`: Maximum number of agent interaction turns.
+- `time_limit`: Maximum solver duration in seconds (also accepts alias `timeout_seconds`).
+- `dollar_limit`: Maximum API spend in USD.
+
+Limits can be configured in the benchmark JSON under `"limits": { ... }` or as flat keys in the configuration, or overridden via CLI flags:
+
+```sh
+uv run android-bench run --config benchmark_config.json --results results/ \
+  --token-limit 200000 \
+  --turn-limit 30 \
+  --timeout 1800 \
+  --dollar-limit 5.00
+```
+
+When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in challenge scores and aggregated under `limits_exceeded` in `results.json` and `test_grader_results.json`.
+
+### Test Grader
+
+To test or evaluate the grader against an existing results directory without re-running the solver agents:
+
+```sh
+uv run android-bench run --config benchmark_config.json --results results/ --test-grader
+```
+
+When `--test-grader` is specified:
+- Benchmark solver agents are not executed.
+- The grader runs against existing challenge solutions in `<results>/<challenge>/`.
+- The final agent response is extracted directly from `<results>/<challenge>_transcript.json`.
+- Grader instances run concurrently, bounded by `num_instances`.
+- If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.
+- The evaluation is saved to `<results>/test_grader_results.json` without modifying `results.json`.
 
 The benchmark asks Cuttlefish to boot `challenge6` without template app loading, then installs all 12
 apps through the sandbox. This avoids the stock loader's failure on the large multi-ABI SHAREit APKM;

@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+from kexploit_agent.sandbox import build_kagent_sandbox
 from kexploit_utils import build_docker
 
 from android_bench.catalog import (
@@ -54,6 +55,7 @@ def validate_artifacts(
 def setup_images() -> None:
     root = repository_root()
     validate_artifacts(CHALLENGES)
+    build_kagent_sandbox()
     build_docker(root, DockerTag.BASE, dockerfile=root / "docker" / "base.Dockerfile")
     ensure_test_app_built()
     validate_artifacts(TEST_CHALLENGES)

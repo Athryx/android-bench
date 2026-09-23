@@ -4,6 +4,12 @@
   "harness": "codex",
   "internet_enabled": true,
   "summarize": true,
+  "limits": {
+    "token_limit": 500000,
+    "turn_limit": 50,
+    "time_limit": 3600.0,
+    "dollar_limit": 10.0
+  },
   "model_config": {
     "model": "gpt-6-astra",
     "model_effort": "xhigh",

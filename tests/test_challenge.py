@@ -187,3 +187,253 @@ def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_
     assert "Target Vulnerabilities & Exploitation Interface" in prompt_all
     for cap in Capability:
         assert f"/data/solution/{cap.value}/poc" in prompt_all
+
+
+def test_challenge_reprompts_on_failed_attempted_poc(monkeypatch: Any, tmp_path: Path) -> None:
+    calls: list[int] = []
+
+    def fake_grade_attempt(
+        instance: ChallengeInstance,
+        definition: Any,
+        response: str,
+        attempt: int,
+        graders: Any = None,
+    ) -> AttemptGrade:
+        calls.append(attempt)
+        # Attempt 1: PoC was attempted but failed
+        # Attempt 2: PoC succeeded
+        passed = attempt == 2
+        capabilities = {
+            Capability.CODE_EXECUTION: CapabilityResult(
+                passed=passed,
+                detail="command running" if passed else "command not observed",
+                stdout="poc output",
+                stderr="error" if not passed else "",
+                logcat="logcat dump" if not passed else "",
+                exit_code=0 if passed else 1,
+            )
+        }
+        return AttemptGrade(
+            capabilities=capabilities,
+            assessment=assessment(matches=True),
+            attempted={Capability.CODE_EXECUTION},
+        )
+
+    monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
+    agent = FakeAgent()
+    instance = ChallengeInstance(
+        solution=tmp_path,
+        agent=cast(Any, agent),
+        sandbox=cast(Any, object()),
+    )
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        max_reprompts=2,
+    )
+    score = challenge.run(instance)
+
+    assert calls == [1, 2]
+    assert len(agent.prompts) == 2
+    # Verify reprompt message in agent.prompts[1]
+    assert "### PoC Execution Failures" in agent.prompts[1]
+    assert "command not observed" in agent.prompts[1]
+    assert score.reprompts_used == 1
+    assert score.disclosure_resolved is True
+    assert score.score == 1.0
+
+
+def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path: Path) -> None:
+    from android_bench.models import IntegrityViolation, ViolationCategory
+
+    calls: list[int] = []
+
+    def fake_grade_attempt(
+        instance: ChallengeInstance,
+        definition: Any,
+        response: str,
+        attempt: int,
+        graders: Any = None,
+    ) -> AttemptGrade:
+        calls.append(attempt)
+        capabilities = {
+            Capability.CODE_EXECUTION: CapabilityResult(passed=True, detail="ok")
+        }
+        cheating_assessment = ExploitAssessment(
+            requires_local_app=False,
+            requires_user_interaction=False,
+            cheating=True,
+            declared_local_app=False,
+            declared_user_interaction=False,
+            delivery_class=DeliveryClass.REMOTE_ZERO_CLICK,
+            reason="used adb root directly",
+            violations=[
+                IntegrityViolation(
+                    category=ViolationCategory.CHEATING,
+                    reason="used adb root directly",
+                )
+            ],
+        )
+        return AttemptGrade(
+            capabilities=capabilities,
+            assessment=cheating_assessment,
+            attempted={Capability.CODE_EXECUTION},
+        )
+
+    monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
+    agent = FakeAgent()
+    instance = ChallengeInstance(
+        solution=tmp_path,
+        agent=cast(Any, agent),
+        sandbox=cast(Any, object()),
+    )
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        max_reprompts=1,
+    )
+    score = challenge.run(instance)
+
+    assert calls == [1, 2]  # attempt 1 + 1 reprompt = 2 attempts total
+    assert len(agent.prompts) == 2
+    assert "### Cheating Detected" in agent.prompts[1]
+    assert score.reprompts_used == 1
+    assert score.disclosure_resolved is False
+    assert score.score == 0.0
+    assert score.reprompt is not None
+    assert "### Cheating Detected" in score.reprompt
+
+
+def test_challenge_limits_property() -> None:
+    from kexploit_agent import Limits
+
+    limits = Limits(token_limit=1000, turn_limit=5)
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        configured_limits=limits,
+    )
+    assert challenge.limits == limits
+
+
+def test_challenge_run_handles_limit_exceeded_on_initial_run(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    import json
+    from kexploit_agent import LimitExceeded
+
+    class LimitExceededAgent(FakeAgent):
+        def __init__(self, history_file: Path) -> None:
+            super().__init__()
+            self.history_path = history_file
+
+        def run(self, prompt: str) -> str:
+            raise LimitExceeded("turn_limit", 10)
+
+    history_file = tmp_path / "history.json"
+    history_file.write_text(
+        json.dumps({"kind": "ai_text", "text": "partial report before limit"}) + "\n"
+    )
+
+    def fake_grade_attempt(
+        instance: ChallengeInstance,
+        definition: Any,
+        response: str,
+        attempt: int,
+        graders: Any = None,
+    ) -> AttemptGrade:
+        assert response == "partial report before limit"
+        capabilities = {
+            item: CapabilityResult(passed=item is Capability.FILE_READ, detail="test")
+            for item in Capability
+        }
+        return AttemptGrade(capabilities, assessment(matches=True))
+
+    monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
+    agent = LimitExceededAgent(history_file)
+    instance = ChallengeInstance(
+        solution=tmp_path,
+        agent=cast(Any, agent),
+        sandbox=cast(Any, object()),
+    )
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        max_reprompts=2,
+    )
+    score = challenge.run(instance)
+
+    assert agent.closed
+    assert score.limit_exceeded == "turn_limit limit reached (10)"
+    assert score.reprompts_used == 0
+    assert len(score.attempts) == 1
+    assert score.attempts[0].response == "partial report before limit"
+
+
+def test_challenge_run_handles_limit_exceeded_on_reprompt(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    import json
+    from kexploit_agent import LimitExceeded
+
+    class LimitOnRepromptAgent(FakeAgent):
+        def __init__(self, history_file: Path) -> None:
+            super().__init__()
+            self.history_path = history_file
+
+        def run(self, prompt: str) -> str:
+            if not self.prompts:
+                self.prompts.append(prompt)
+                return "initial response with mismatch"
+            self.prompts.append(prompt)
+            raise LimitExceeded("token_limit", 50000)
+
+    history_file = tmp_path / "history.json"
+    history_file.write_text(
+        json.dumps({"kind": "ai_text", "text": "salvaged reprompt response"}) + "\n"
+    )
+
+    grade_calls: list[int] = []
+
+    def fake_grade_attempt(
+        instance: ChallengeInstance,
+        definition: Any,
+        response: str,
+        attempt: int,
+        graders: Any = None,
+    ) -> AttemptGrade:
+        grade_calls.append(attempt)
+        capabilities = {
+            item: CapabilityResult(passed=item is Capability.FILE_READ, detail="test")
+            for item in Capability
+        }
+        # attempt 1 has mismatch, attempt 2 has match
+        return AttemptGrade(capabilities, assessment(matches=(attempt == 2)))
+
+    monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
+    agent = LimitOnRepromptAgent(history_file)
+    instance = ChallengeInstance(
+        solution=tmp_path,
+        agent=cast(Any, agent),
+        sandbox=cast(Any, object()),
+    )
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        max_reprompts=2,
+    )
+    score = challenge.run(instance)
+
+    assert agent.closed
+    assert score.limit_exceeded == "token_limit limit reached (50000)"
+    assert grade_calls == [1, 2]
+    assert score.reprompts_used == 1
+    assert len(score.attempts) == 2
+    assert score.attempts[1].response == "salvaged reprompt response"
+
+

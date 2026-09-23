@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kexploit_agent import HarnessType, ModelConfig
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from kexploit_agent import HarnessType, Limits, ModelConfig
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from android_bench.catalog import ChallengeName
 
@@ -20,6 +20,31 @@ class BenchmarkConfig(BaseModel):
     summarize: bool = False
     agent_model_config: ModelConfig = Field(alias="model_config")
     max_reprompts: int = Field(default=2, ge=0)
+    limits: Limits | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_limits(cls, data: object) -> object:
+        if isinstance(data, dict):
+            data = dict(data)
+            flat_limits: dict[str, object] = {}
+            for key in ("token_limit", "turn_limit", "time_limit", "dollar_limit"):
+                if key in data:
+                    flat_limits[key] = data.pop(key)
+            if "timeout_seconds" in data and "time_limit" not in flat_limits:
+                flat_limits["time_limit"] = data.pop("timeout_seconds")
+            elif "timeout_seconds" in data:
+                data.pop("timeout_seconds")
+
+            if flat_limits:
+                if "limits" in data and isinstance(data["limits"], dict):
+                    merged = dict(flat_limits)
+                    merged.update(data["limits"])
+                    data["limits"] = merged
+                elif "limits" not in data or data["limits"] is None:
+                    data["limits"] = flat_limits
+        return data
+
 
     @field_validator("challenges")
     @classmethod

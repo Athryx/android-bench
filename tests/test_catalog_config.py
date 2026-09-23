@@ -64,6 +64,10 @@ def test_example_config_uses_extended_model_fields() -> None:
     assert config.agent_model_config.top_p == 0.95
     assert config.agent_model_config.timeout_seconds == 3600
     assert config.agent_model_config.thinking_budget == 32768
+    assert config.limits is not None
+    assert config.limits.token_limit == 500000
+    assert config.limits.turn_limit == 50
+    assert config.limits.time_limit == 3600.0
 
 
 @pytest.mark.parametrize(
@@ -134,3 +138,62 @@ def test_config_accepts_test_challenges() -> None:
         ChallengeName.TEST_CODE_EXECUTION,
         ChallengeName.TEST_ALL,
     ]
+
+
+def test_config_parses_nested_limits() -> None:
+    from decimal import Decimal
+
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "limits-test",
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+            "limits": {
+                "token_limit": 50000,
+                "turn_limit": 25,
+                "time_limit": 1800.0,
+                "dollar_limit": "5.50",
+            },
+        }
+    )
+    assert config.limits is not None
+    assert config.limits.token_limit == 50000
+    assert config.limits.turn_limit == 25
+    assert config.limits.time_limit == 1800.0
+    assert config.limits.dollar_limit == Decimal("5.50")
+
+
+def test_config_parses_flat_limits_and_timeout_alias() -> None:
+    from decimal import Decimal
+
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "flat-limits-test",
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+            "token_limit": 20000,
+            "turn_limit": 10,
+            "timeout_seconds": 600.0,
+            "dollar_limit": 2.0,
+        }
+    )
+    assert config.limits is not None
+    assert config.limits.token_limit == 20000
+    assert config.limits.turn_limit == 10
+    assert config.limits.time_limit == 600.0
+    assert config.limits.dollar_limit == Decimal("2.0")
+
+
+def test_config_nested_limits_override_flat_timeout() -> None:
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "override-test",
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+            "timeout_seconds": 300,
+            "limits": {"time_limit": 900.0},
+        }
+    )
+    assert config.limits is not None
+    assert config.limits.time_limit == 900.0
+
