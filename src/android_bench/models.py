@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from kbench import BenchmarkResult, ChallengeResult, Score
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 
@@ -58,11 +59,18 @@ class ViolationCategory(StrEnum):
 
 
 class IntegrityViolation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     category: ViolationCategory
     reason: str
     evidence: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _coerce_evidence(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return [v]
+        return v
 
 
 class ExploitAssessment(BaseModel):
@@ -82,6 +90,14 @@ class ExploitAssessment(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def disclosure_matches(self) -> bool:
+        if (
+            not self.claimed_capabilities
+            and self.declared_local_app is None
+            and self.declared_user_interaction is None
+            and not self.requires_local_app
+            and not self.requires_user_interaction
+        ):
+            return True
         return (
             self.declared_local_app is not None
             and self.declared_user_interaction is not None
@@ -157,5 +173,4 @@ class TestGraderResult(BaseModel):
     results: dict[str, ChallengeResult]
     reprompts: dict[str, str] = Field(default_factory=dict)
     limits_exceeded: dict[str, str] = Field(default_factory=dict)
-
 

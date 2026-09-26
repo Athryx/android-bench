@@ -100,6 +100,45 @@ def test_run_challenge_copies_agent_history(tmp_path: Path) -> None:
     assert not (solution_dir / "agent_transcript.jsons").exists()
 
 
+def test_run_challenge_copies_agent_history_and_context(tmp_path: Path) -> None:
+    state = MagicMock(spec=GlobalRunState)
+    state.solutions_folder = tmp_path
+    state.run_group = MagicMock()
+    challenge = MagicMock()
+    challenge.name = "context-test"
+    challenge.tag = "android-bench:test"
+    challenge.cuttlefish_template = "challenge6"
+    challenge.internet_enabled = False
+    challenge.model_config = ModelConfig(model=Model.GPT_6_ASTRA)
+    challenge.system_prompt.return_value = "test prompt"
+    challenge.run.return_value = _Score()
+
+    history_file = tmp_path / "raw_history.jsons"
+    history_file.write_text('{"event": "init"}\n')
+    context_file = tmp_path / "raw_history.context.jsonl"
+    context_file.write_text('{"kind": "request", "model": "gpt-6"}\n')
+
+    agent = MagicMock()
+    agent.history_path = history_file
+    challenge.harness.create_agent.return_value = agent
+
+    sandbox = MagicMock()
+    sandbox.__enter__.return_value = sandbox
+    sandbox.sandbox = MagicMock()
+    sandbox.container_adb_host = "cuttlefish:6000"
+
+    with patch("android_bench.runner.AndroidBenchSandbox", return_value=sandbox):
+        result = run_challenge(state, challenge)
+
+    assert result.score.score == 1.0
+    assert (tmp_path / "context-test_transcript.json").is_file()
+    assert (tmp_path / "context-test_transcript.json").read_text() == '{"event": "init"}\n'
+    assert (tmp_path / "context-test_transcript.context.jsonl").is_file()
+    assert (
+        tmp_path / "context-test_transcript.context.jsonl"
+    ).read_text() == '{"kind": "request", "model": "gpt-6"}\n'
+
+
 def test_run_challenge_summarizes_agent_history_before_copy(tmp_path: Path) -> None:
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
@@ -255,6 +294,30 @@ def test_extract_final_response_multi_agent_agent_out(tmp_path: Path) -> None:
         '{"seq": 5, "kind": "session_end"}\n'
     )
     assert extract_final_response(transcript) == "output via agent_out"
+
+
+def test_extract_final_response_submit_output(tmp_path: Path) -> None:
+    transcript = tmp_path / "submit_output_transcript.json"
+    transcript.write_text(
+        '{"seq": 1, "kind": "session_info", "root_agent_id": "root-1"}\n'
+        '{"seq": 2, "kind": "agent_start", "agent_id": "root-1", "agent_name": "solver", "parent_agent_id": null}\n'
+        '{"seq": 3, "kind": "ai_tool_call", "agent_id": "root-1", "tool_name": "submit_output", "args": {"result": "output via submit_output"}}\n'
+        '{"seq": 4, "kind": "agent_end", "agent_id": "root-1"}\n'
+        '{"seq": 5, "kind": "session_end"}\n'
+    )
+    assert extract_final_response(transcript) == "output via submit_output"
+
+
+def test_extract_final_response_session_info_root_agent(tmp_path: Path) -> None:
+    transcript = tmp_path / "session_info_transcript.json"
+    transcript.write_text(
+        '{"seq": 1, "kind": "session_info", "root_agent_id": "custom-root"}\n'
+        '{"seq": 2, "kind": "agent_start", "agent_id": "child-1", "parent_agent_id": "custom-root"}\n'
+        '{"seq": 3, "kind": "ai_text", "agent_id": "child-1", "text": "child text"}\n'
+        '{"seq": 4, "kind": "ai_text", "agent_id": "custom-root", "text": "root final text"}\n'
+        '{"seq": 5, "kind": "session_end"}\n'
+    )
+    assert extract_final_response(transcript) == "root final text"
 
 
 def test_extract_final_response_with_summaries(tmp_path: Path) -> None:

@@ -105,6 +105,24 @@ def test_start_enables_solver_internet_when_requested() -> None:
     cuttle_client.start.assert_called_once_with(
         "challenge6",
         name=sandbox.cuttle_cli_instance_name,
-        load_apps=False,
+        load_apps=True,
         unmanaged=True,
     )
+
+
+def test_after_adb_connect_installs_grader_and_challenge_app() -> None:
+    container = MagicMock()
+    container.exec_sync.return_value = SimpleNamespace(exit_code=0, stdout=b"", stderr=b"")
+    sandbox = AndroidBenchSandbox(
+        MagicMock(spec=GlobalRunState), "android-bench:test", "challenge6", []
+    )
+    sandbox.sandbox = container
+
+    sandbox._after_adb_connect()
+
+    assert container.exec_sync.call_count == 2
+    first_call_cmd = container.exec_sync.call_args_list[0][0][0]
+    second_call_cmd = container.exec_sync.call_args_list[1][0][0]
+    assert "/opt/android-bench/grader.apk" in first_call_cmd[2]
+    assert "/challenge/*.apk" in second_call_cmd[2]
+

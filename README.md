@@ -78,6 +78,9 @@ guest networking follows the Cuttlefish template's network configuration.
 When `summarize` is `true`, the completed agent trace is summarized in place
 before it is copied to `<results>/<challenge>_transcript.json`. Both the
 original trace and the results copy therefore contain the generated summaries.
+When model context capture is enabled in `kexploit-agent`, the raw request data sidecar
+is also copied to `<results>/<challenge>_transcript.context.jsonl` so the exact model context
+can be inspected or reconstructed in the trace viewer.
 Trace summarization uses DeepSeek V4.1 Flash through OpenRouter and requires
 `OPENROUTER_API_KEY`. The default is `false`.
 
@@ -126,10 +129,9 @@ When `--test-grader` is specified:
 - If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.
 - The evaluation is saved to `<results>/test_grader_results.json` without modifying `results.json`.
 
-The benchmark asks Cuttlefish to boot `challenge6` without template app loading, then installs all 12
-apps through the sandbox. This avoids the stock loader's failure on the large multi-ABI SHAREit APKM;
-the installer keeps only device-compatible ABI and English resource splits and removes its source
-copies before the solver starts.
+The benchmark boots `challenge6` with template app loading enabled, so all 12 target apps are pre-installed
+by Cuttlefish. The sandbox only provisions the benchmark infrastructure apps (the grader app and any challenge
+test app) after connecting ADB.
 
 ## PoC contract
 

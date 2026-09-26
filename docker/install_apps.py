@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
-APP_DIR = Path("/opt/android-bench/apps")
+APP_DIR = Path("/opt/android-bench")
 CHALLENGE_DIR = Path("/challenge")
 APP_SUFFIXES = {".apk", ".apkm", ".xapk"}
 LANGUAGES = {
@@ -79,12 +79,15 @@ def install_archive(serial: str, archive_path: Path, primary_abi: str) -> None:
 def installation_candidates(
     app_dir: Path = APP_DIR, challenge_dir: Path = CHALLENGE_DIR
 ) -> list[Path]:
-    """Return bulk apps plus any challenge artifact missing from the bulk set."""
-    candidates = {
-        path.name: path
-        for path in sorted(app_dir.iterdir())
-        if path.is_file() and path.suffix.lower() in APP_SUFFIXES
-    }
+    """Return grader apps plus any challenge artifact (e.g. test_app.apk)."""
+    candidates = {}
+    if app_dir.is_dir():
+        for path in sorted(app_dir.iterdir()):
+            if path.is_file() and path.suffix.lower() in APP_SUFFIXES:
+                candidates[path.name] = path
+    elif app_dir.is_file() and app_dir.suffix.lower() in APP_SUFFIXES:
+        candidates[app_dir.name] = app_dir
+
     if challenge_dir.is_dir():
         for path in sorted(challenge_dir.iterdir()):
             if path.is_file() and path.suffix.lower() in APP_SUFFIXES:
@@ -109,7 +112,7 @@ def main() -> None:
             run_adb(serial, "install", "-t", "-r", str(app_path))
         elif suffix in {".xapk", ".apkm"}:
             install_archive(serial, app_path, primary_abi)
-        if app_path.parent == APP_DIR:
+        if app_path.parent == APP_DIR and app_path.name != "grader.apk":
             app_path.unlink()
 
 

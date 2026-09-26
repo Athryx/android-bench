@@ -12,8 +12,10 @@ ENV GHIDRA_INSTALL_DIR=/opt/ghidra_11.4_PUBLIC
 ENV PATH=/opt/android-sdk/platform-tools:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/build-tools/${ANDROID_BUILD_TOOLS}:/opt/jadx/bin:${GHIDRA_INSTALL_DIR}/support:/root/.local/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     clang \
     cmake \
+    curl \
     default-jdk-headless \
     gdb \
     jq \
@@ -21,9 +23,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     llvm \
     netcat-openbsd \
     pkg-config \
+    python3 \
+    python3-pip \
     python3-venv \
     socat \
     strace \
+    unzip \
+    wget \
     xz-utils \
     zip \
     && rm -rf /var/lib/apt/lists/*
@@ -54,11 +60,15 @@ COPY docker/grader-app /tmp/grader-app
 RUN bash /tmp/grader-app/build.sh /opt/android-bench/grader.apk \
     && rm -rf /tmp/grader-app
 
-# The remote challenge6 template currently cannot stream the full SHAREit APKM split set. Keep app
-# provisioning inside the benchmark sandbox so every fresh VM still receives all 12 target apps.
-COPY apps /opt/android-bench/apps
 COPY --chmod=0755 docker/install_apps.py /usr/local/bin/android-bench-install-apps
-RUN rm -f /opt/android-bench/apps/test_app.apk \
-    && chmod -R a+rwX /opt/android-bench/apps
+
+# Ensure pi-mcp-extension is accessible for Pi coding agent in both / and /challenge
+RUN for p in /usr/lib/node_modules/pi-mcp-extension /usr/local/lib/node_modules/pi-mcp-extension; do \
+        if [ -d "$p" ]; then \
+            ln -sf "$p" /pi-mcp-extension \
+            && ln -sf "$p" /challenge/pi-mcp-extension; \
+        fi; \
+    done \
+    && chmod 777 /challenge
 
 WORKDIR /challenge

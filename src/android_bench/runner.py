@@ -69,14 +69,57 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             if isinstance(history_path, (str, Path)):
                 history_file = Path(history_path)
                 if history_file.is_file():
+                    target_transcript = (
+                        state.solutions_folder / f"{challenge.name}_transcript.json"
+                    )
                     try:
                         if getattr(challenge, "summarize", False) is True:
                             summarize_log(history_file)
                     finally:
                         shutil.copy2(
                             history_file,
-                            state.solutions_folder / f"{challenge.name}_transcript.json",
+                            target_transcript,
                         )
+                        agent_context = getattr(agent, "context_path", None)
+                        if agent_context is None and hasattr(agent, "_context_capture"):
+                            capture_obj = getattr(agent, "_context_capture")
+                            if capture_obj is not None:
+                                agent_context = getattr(capture_obj, "path", None)
+
+                        context_file: Path | None = None
+                        if (
+                            agent_context is not None
+                            and isinstance(agent_context, (str, Path))
+                            and Path(agent_context).is_file()
+                        ):
+                            context_file = Path(agent_context)
+                        else:
+                            try:
+                                from kexploit_agent.context_capture import capture_path
+
+                                candidate = capture_path(history_file)
+                            except ImportError:
+                                candidate = history_file.with_suffix(".context.jsonl")
+
+                            if candidate.is_file():
+                                context_file = candidate
+                            elif history_file.with_suffix(".context.json").is_file():
+                                context_file = history_file.with_suffix(".context.json")
+
+                        if context_file is not None and context_file.is_file():
+                            if context_file.name.endswith(".context.json"):
+                                target_context = target_transcript.with_suffix(".context.json")
+                            else:
+                                try:
+                                    from kexploit_agent.context_capture import capture_path
+
+                                    target_context = capture_path(target_transcript)
+                                except Exception:
+                                    target_context = target_transcript.with_suffix(".context.jsonl")
+                            shutil.copy2(
+                                context_file,
+                                target_context,
+                            )
 
     limit_exceeded = getattr(score, "limit_exceeded", None)
     result = AndroidChallengeResult(
@@ -164,16 +207,31 @@ def extract_final_response(transcript_path: Path) -> str:
     if not events:
         raise ValueError(f"Unable to parse transcript from {transcript_path}")
 
-    # In multi-agent traces (Trace v2), identify the root agent (parent_agent_id is None).
+    # In multi-agent traces (Trace v2), identify the root agent (parent_agent_id is None or root_agent_id in session_info).
     root_agent_id: str | None = None
     for event in events:
-        if (
-            isinstance(event, dict)
-            and event.get("kind") == "agent_start"
-            and event.get("parent_agent_id") is None
-        ):
-            root_agent_id = event.get("agent_id")
-            break
+        if isinstance(event, dict):
+            if event.get("kind") == "agent_start" and event.get("parent_agent_id") is None:
+                root_agent_id = event.get("agent_id")
+                break
+            if event.get("kind") == "session_info" and event.get("root_agent_id"):
+                root_agent_id = event.get("root_agent_id")
+                break
+
+    def _extract_tool_text(args: object) -> str | None:
+        if isinstance(args, str) and args.strip():
+            return args
+        if isinstance(args, dict):
+            for key in ("text", "result", "output", "response"):
+                val = args.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val
+            if "text" not in args and args:
+                try:
+                    return json.dumps(args)
+                except Exception:
+                    pass
+        return None
 
     # If root_agent_id is known, check root agent's ai_text first.
     if root_agent_id is not None:
@@ -191,14 +249,12 @@ def extract_final_response(transcript_path: Path) -> str:
             if (
                 isinstance(event, dict)
                 and event.get("kind") == "ai_tool_call"
-                and event.get("tool_name") == "agent_out"
+                and event.get("tool_name") in ("agent_out", "submit_output")
                 and event.get("agent_id") == root_agent_id
             ):
-                args = event.get("args")
-                if isinstance(args, dict):
-                    text = args.get("text")
-                    if isinstance(text, str) and text.strip():
-                        return text
+                text = _extract_tool_text(event.get("args"))
+                if text:
+                    return text
 
     for event in reversed(events):
         if isinstance(event, dict) and event.get("kind") == "ai_text":
@@ -210,13 +266,11 @@ def extract_final_response(transcript_path: Path) -> str:
         if (
             isinstance(event, dict)
             and event.get("kind") == "ai_tool_call"
-            and event.get("tool_name") == "agent_out"
+            and event.get("tool_name") in ("agent_out", "submit_output")
         ):
-            args = event.get("args")
-            if isinstance(args, dict):
-                text = args.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text
+            text = _extract_tool_text(event.get("args"))
+            if text:
+                return text
 
     for event in reversed(events):
         if isinstance(event, dict):

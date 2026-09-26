@@ -275,3 +275,48 @@ def test_get_attempt_issues_and_format_reprompt() -> None:
     assert "### Cheating Detected" in simple_reprompt
     assert "### Delivery Disclosure Mismatch" in simple_reprompt
 
+
+@pytest.mark.parametrize(
+    "cmd_format",
+    [
+        "sleep {duration}",
+        "/system/bin/sleep {duration}",
+        "sh -c sleep {duration}",
+    ],
+)
+def test_code_execution_grader_matches_ps_output(cmd_format: str) -> None:
+    from unittest.mock import MagicMock
+    from android_bench.grader import CodeExecutionGrader
+
+    grader = CodeExecutionGrader()
+    deterministic = MagicMock()
+    deterministic._target_uid.return_value = 10122
+
+    captured_duration = []
+
+    def mock_run_poc(name: str, args: list[str]) -> SimpleNamespace:
+        captured_duration.append(args[1])
+        return SimpleNamespace(exit_code=0, stdout=b"OK\n", stderr=b"")
+
+    deterministic._run_poc.side_effect = mock_run_poc
+
+    def mock_adb(*args: str, **kwargs: Any) -> SimpleNamespace:
+        duration = captured_duration[0]
+        cmd = cmd_format.format(duration=duration)
+        ps_output = (
+            f"  PID   UID ARGS\n"
+            f" 1924 10083 com.android.systemui\n"
+            f"18553 10122 {cmd}\n"
+        ).encode("utf-8")
+        return SimpleNamespace(exit_code=0, stdout=ps_output, stderr=b"")
+
+    deterministic.adb.side_effect = mock_adb
+    deterministic._result.side_effect = (
+        lambda passed, detail, proc: SimpleNamespace(passed=passed, detail=detail)
+    )
+
+    result = grader.grade(deterministic)
+    assert result.passed is True
+    assert "observed command under target UID 10122" in result.detail
+
+
