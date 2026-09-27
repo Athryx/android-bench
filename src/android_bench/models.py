@@ -4,7 +4,14 @@ from enum import StrEnum
 from typing import Any
 
 from kbench import BenchmarkResult, ChallengeResult, Score
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializeAsAny,
+    computed_field,
+    field_validator,
+)
 
 
 
@@ -74,7 +81,7 @@ class IntegrityViolation(BaseModel):
 
 
 class ExploitAssessment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     requires_local_app: bool
     requires_user_interaction: bool
@@ -112,7 +119,7 @@ class ExploitAssessment(BaseModel):
 
 
 class AttemptRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     attempt: int
     response: str
@@ -121,7 +128,7 @@ class AttemptRecord(BaseModel):
 
 
 class AndroidExploitScore(Score):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     challenge: str
     package: str
@@ -156,11 +163,56 @@ class AndroidExploitScore(Score):
 
 
 class AndroidChallengeResult(ChallengeResult):
+    score: SerializeAsAny[Score] | None = None  # type: ignore[assignment]
+    runtime: float = 0.0
     limit_exceeded: str | None = None
+    session_id: str | None = None
+    status: str = "completed"
+    current_attempt: int = 1
+    reprompts_used: int = 0
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _coerce_score(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            return AndroidExploitScore.model_validate(v)
+        return v
 
 
 class AndroidBenchmarkResult(BenchmarkResult):
+    scores: dict[str, SerializeAsAny[Score]] = Field(default_factory=dict)
+    results: dict[str, SerializeAsAny[ChallengeResult]] = Field(default_factory=dict)
     limits_exceeded: dict[str, str] = Field(default_factory=dict)
+    finished_challenges: list[str] = Field(default_factory=list)
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def _coerce_scores(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            return {
+                k: (
+                    AndroidExploitScore.model_validate(val)
+                    if isinstance(val, dict)
+                    else val
+                )
+                for k, val in v.items()
+            }
+        return v
+
+    @field_validator("results", mode="before")
+    @classmethod
+    def _coerce_results(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            return {
+                k: (
+                    AndroidChallengeResult.model_validate(val)
+                    if isinstance(val, dict)
+                    else val
+                )
+                for k, val in v.items()
+            }
+        return v
+
 
 
 class TestGraderResult(BaseModel):
