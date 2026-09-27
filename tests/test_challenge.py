@@ -84,8 +84,8 @@ def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path)
     assert agent.closed
     assert score.reprompts_used == 1
     assert score.issues_resolved
-    assert (tmp_path / "grading" / "attempt-1.json").is_file()
-    assert (tmp_path / "grading" / "attempt-2.json").is_file()
+    assert (tmp_path / "grading" / "attempt-1.toml").is_file()
+    assert (tmp_path / "grading" / "attempt-2.toml").is_file()
 
 
 def test_resume_after_clean_grade_does_not_reprompt(tmp_path: Path) -> None:

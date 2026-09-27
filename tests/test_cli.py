@@ -132,7 +132,7 @@ def test_test_grader_command_validates_results_dir(tmp_path: Path) -> None:
 
     empty_dir = tmp_path / "empty_results"
     empty_dir.mkdir()
-    with pytest.raises(typer.BadParameter, match="challenge.json not found"):
+    with pytest.raises(typer.BadParameter, match="challenge.toml not found"):
         test_grader_command(empty_dir)
 
     (empty_dir / "challenge.json").write_text(
@@ -142,15 +142,16 @@ def test_test_grader_command_validates_results_dir(tmp_path: Path) -> None:
         test_grader_command(empty_dir)
 
 
-def test_run_command_writes_challenge_json(tmp_path: Path) -> None:
-    config = tmp_path / "benchmark.json"
+def test_run_command_writes_challenge_toml(tmp_path: Path) -> None:
+    config = tmp_path / "benchmark.toml"
     config.write_text(
-        """{
-          "name": "write-config-smoke",
-          "num_instances": 1,
-          "harness": "codex",
-          "model_config": {"model": "gpt-6-astra"}
-        }"""
+        """
+        name = "write-config-smoke"
+        num_instances = 1
+        harness = "codex"
+        [model_config]
+        model = "gpt-6-astra"
+        """
     )
     results_dir = tmp_path / "results"
     stub_result = type(
@@ -165,8 +166,8 @@ def test_run_command_writes_challenge_json(tmp_path: Path) -> None:
     ):
         run_command(config, results_dir)
 
-    assert (results_dir / "challenge.json").is_file()
-    assert "write-config-smoke" in (results_dir / "challenge.json").read_text()
+    assert (results_dir / "challenge.toml").is_file()
+    assert "write-config-smoke" in (results_dir / "challenge.toml").read_text()
 
 
 def test_run_command_standard_run_rejects_non_empty_results(tmp_path: Path) -> None:

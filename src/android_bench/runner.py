@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 import shutil
 import threading
 import time
-from pathlib import Path
-from typing import TYPE_CHECKING
+import tomllib
+from typing import TYPE_CHECKING, Any
 
 from cuttle_cli import CuttleClient
 from kbench import (
@@ -29,7 +30,9 @@ from android_bench.models import (
     AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
+    Capability,
     ChallengeScore,
+    FloatScore,
     TestGraderResult,
     calculate_scores,
 )
@@ -105,12 +108,12 @@ def _save_benchmark_progress(
         sum(float_scores) / len(float_scores) if float_scores else 0.0
     )
     benchmark_result = AndroidBenchmarkResult(
-        overall_score=overall,
+        score=overall,
         total_runtime=total_runtime,
         results=challenge_results,
     )
-    (output_folder / "results.json").write_text(
-        benchmark_result.model_dump_json(indent=2)
+    (output_folder / "results.toml").write_text(
+        benchmark_result.model_dump_toml()
     )
     return benchmark_result
 
@@ -158,14 +161,15 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             challenge=challenge.name,
             session_id=session_id,
             status="running",
-            score=0.0,
+            score=FloatScore(0.0),
+            axes={},
             runtime=0.0,
         )
-        (solution / "results.json").write_text(init_result.model_dump_json(indent=2))
+        (solution / "results.toml").write_text(init_result.model_dump_toml())
 
         def on_progress(p_res: AndroidChallengeResult) -> None:
             p_res.runtime = time.perf_counter() - start_time
-            (solution / "results.json").write_text(p_res.model_dump_json(indent=2))
+            (solution / "results.toml").write_text(p_res.model_dump_toml())
 
         outcome: Any
         try:
@@ -206,22 +210,25 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
     else:
         limit_exceeded = getattr(outcome, "limit_exceeded", None)
         score_val = getattr(outcome, "score", 0.0)
-        score_obj = score_val if isinstance(score_val, Score) else ChallengeScore(overall=float(score_val))
+        score_float = float(score_val.score if hasattr(score_val, "score") and not isinstance(score_val, (int, float)) else score_val)
         result = AndroidChallengeResult(
             challenge=challenge.name,
-            score=score_obj,
+            score=FloatScore(score_float),
+            axes=getattr(outcome, "axes", {}),
             runtime=time.perf_counter() - start_time,
             limit_exceeded=limit_exceeded,
             session_id=session_id,
             status="completed",
         )
-    (solution / "results.json").write_text(result.model_dump_json(indent=2))
+    (solution / "results.toml").write_text(result.model_dump_toml())
     return result
 
 
 def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
     solution = state.solutions_folder / challenge.name
-    results_file = solution / "results.json"
+    results_file = solution / "results.toml"
+    if not results_file.is_file():
+        results_file = solution / "results.json"
     transcript_file = state.solutions_folder / f"{challenge.name}_transcript.json"
     if not transcript_file.is_file():
         transcript_file = state.solutions_folder / f"{challenge.name}_transcript.jsons"
@@ -229,7 +236,8 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     # 1. Check if challenge is already completed
     if results_file.is_file():
         try:
-            data = json.loads(results_file.read_text())
+            content = results_file.read_text(encoding="utf-8")
+            data = tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
             if data.get("status") == "completed" and data.get("score") is not None:
                 return AndroidChallengeResult.model_validate(data)
             if data.get("score") is not None and isinstance(data.get("score"), dict):
@@ -242,7 +250,8 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     session_id: str | None = None
     if results_file.is_file():
         try:
-            data = json.loads(results_file.read_text())
+            content = results_file.read_text(encoding="utf-8")
+            data = tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
             session_id = data.get("session_id")
         except Exception:
             pass
@@ -264,13 +273,20 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     audit_dir = solution / "grading"
     existing_attempts: list[AttemptRecord] = []
     if audit_dir.is_dir():
-        for att_path in sorted(audit_dir.glob("attempt-*.json")):
-            try:
-                existing_attempts.append(
-                    AttemptRecord.model_validate_json(att_path.read_text())
-                )
-            except Exception:
-                pass
+        for att_path in sorted(audit_dir.glob("attempt-*.*")):
+            if att_path.suffix in (".toml", ".json"):
+                try:
+                    content = att_path.read_text(encoding="utf-8")
+                    if att_path.suffix == ".toml":
+                        existing_attempts.append(
+                            AttemptRecord.model_validate_toml(content)
+                        )
+                    else:
+                        existing_attempts.append(
+                            AttemptRecord.model_validate_json(content)
+                        )
+                except Exception:
+                    pass
 
     num_graded = len(existing_attempts)
 
@@ -351,7 +367,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     ) as sandbox:
         def on_progress(p_res: AndroidChallengeResult) -> None:
             p_res.runtime = time.perf_counter() - start_time
-            (solution / "results.json").write_text(p_res.model_dump_json(indent=2))
+            (solution / "results.toml").write_text(p_res.model_dump_toml())
 
         outcome: Any
         try:
@@ -407,16 +423,17 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     else:
         limit_exceeded = getattr(outcome, "limit_exceeded", None)
         score_val = getattr(outcome, "score", 0.0)
-        score_obj = score_val if isinstance(score_val, Score) else ChallengeScore(overall=float(score_val))
+        score_float = float(score_val.score if hasattr(score_val, "score") and not isinstance(score_val, (int, float)) else score_val)
         result = AndroidChallengeResult(
             challenge=challenge.name,
-            score=score_obj,
+            score=FloatScore(score_float),
+            axes=getattr(outcome, "axes", {}),
             runtime=time.perf_counter() - start_time,
             limit_exceeded=limit_exceeded,
             session_id=resumed_session_id,
             status="completed",
         )
-    (solution / "results.json").write_text(result.model_dump_json(indent=2))
+    (solution / "results.toml").write_text(result.model_dump_toml())
     return result
 
 
@@ -425,11 +442,11 @@ def run_benchmark(
     benchmark_config: BenchmarkConfig | None = None,
     *,
     resume: bool = False,
-) -> BenchmarkResult:
+) -> AndroidBenchmarkResult:
     run.output_folder.mkdir(exist_ok=True, parents=True)
     if benchmark_config is not None:
-        (run.output_folder / "challenge.json").write_text(
-            benchmark_config.formatted_json()
+        (run.output_folder / "challenge.toml").write_text(
+            benchmark_config.formatted_toml()
         )
 
     state = GlobalRunState(
@@ -446,10 +463,13 @@ def run_benchmark(
 
     if resume:
         # Load any existing completed results
-        results_file = run.output_folder / "results.json"
+        results_file = run.output_folder / "results.toml"
+        if not results_file.is_file():
+            results_file = run.output_folder / "results.json"
         if results_file.is_file():
             try:
-                existing_data = json.loads(results_file.read_text())
+                content = results_file.read_text(encoding="utf-8")
+                existing_data = tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
                 if "results" in existing_data and isinstance(existing_data["results"], dict):
                     for name, res_data in existing_data["results"].items():
                         challenge_results[name] = AndroidChallengeResult.model_validate(res_data)
@@ -457,13 +477,16 @@ def run_benchmark(
                 pass
 
         for ch in run.challenges:
-            sol_res = run.output_folder / ch.name / "results.json"
+            sol_res = run.output_folder / ch.name / "results.toml"
+            if not sol_res.is_file():
+                sol_res = run.output_folder / ch.name / "results.json"
             if sol_res.is_file() and (
                 ch.name not in challenge_results
                 or getattr(challenge_results[ch.name], "status", None) != "completed"
             ):
                 try:
-                    res_data = json.loads(sol_res.read_text())
+                    content = sol_res.read_text(encoding="utf-8")
+                    res_data = tomllib.loads(content) if sol_res.suffix == ".toml" else json.loads(content)
                     if res_data.get("status") == "completed" and res_data.get("score") is not None:
                         challenge_results[ch.name] = AndroidChallengeResult.model_validate(res_data)
                 except Exception:
@@ -506,7 +529,7 @@ def run_benchmark(
 def resume_benchmark(
     run: BenchmarkRun,
     benchmark_config: BenchmarkConfig | None = None,
-) -> BenchmarkResult:
+) -> AndroidBenchmarkResult:
     return run_benchmark(run, benchmark_config=benchmark_config, resume=True)
 
 
@@ -627,10 +650,13 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
         raise FileNotFoundError(f"Challenge transcript not found: {transcript_path}")
 
     existing_limit: str | None = None
-    existing_results_file = solution / "results.json"
+    existing_results_file = solution / "results.toml"
+    if not existing_results_file.is_file():
+        existing_results_file = solution / "results.json"
     if existing_results_file.is_file():
         try:
-            existing_data = json.loads(existing_results_file.read_text())
+            content = existing_results_file.read_text(encoding="utf-8")
+            existing_data = tomllib.loads(content) if existing_results_file.suffix == ".toml" else json.loads(content)
             existing_limit = existing_data.get("limit_exceeded")
             if not existing_limit and isinstance(existing_data.get("score"), dict):
                 existing_limit = existing_data["score"].get("limit_exceeded")
@@ -657,7 +683,8 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
         challenge=challenge.name,
         package=package,
         status="completed",
-        score=ChallengeScore(overall=overall_score, axes=axes),
+        score=FloatScore(overall_score),
+        axes=axes,
         runtime=time.perf_counter() - start_time,
         limit_exceeded=existing_limit,
         attempts=[record],
@@ -692,7 +719,7 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         for challenge_name, result in challenge_results.items()
     }
     reprompts: dict[str, str] = {
-        challenge_name: result.reprompt
+        challenge_name: str(getattr(result, "reprompt", ""))
         for challenge_name, result in challenge_results.items()
         if getattr(result, "reprompt", None) is not None
     }
@@ -709,14 +736,14 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         else 0.0
     )
     grader_result = TestGraderResult(
-        overall_score=overall,
+        score=overall,
         total_runtime=total_runtime,
         scores=scores,
         results=challenge_results,
         reprompts=reprompts,
         limits_exceeded=limits_exceeded,
     )
-    (run.output_folder / "test_grader_results.json").write_text(
-        grader_result.model_dump_json(indent=2)
+    (run.output_folder / "test_grader_results.toml").write_text(
+        grader_result.model_dump_toml()
     )
     return grader_result

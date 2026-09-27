@@ -51,7 +51,7 @@ def test_config_parses_runtime_model(tmp_path: Path) -> None:
 
 def test_example_config_uses_extended_model_fields() -> None:
     config = BenchmarkConfig.from_file(
-        repository_root() / "benchmark_config.example.json"
+        repository_root() / "benchmark_config.example.toml"
     )
 
     assert config.agent_model_config.model.value == "gpt-6-astra"

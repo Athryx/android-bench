@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import tomllib
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -113,7 +114,7 @@ def test_run_challenge_copies_agent_history(tmp_path: Path) -> None:
 
     assert result.score.score == 1.0
     solution_dir = tmp_path / "transcript-test"
-    assert (solution_dir / "results.json").is_file()
+    assert (solution_dir / "results.toml").is_file()
     assert (tmp_path / "transcript-test_transcript.json").is_file()
     assert (tmp_path / "transcript-test_transcript.json").read_text() == '{"event": "init"}\n'
     assert not (solution_dir / "agent_transcript.jsons").exists()
@@ -425,7 +426,7 @@ def test_grade_existing_challenge_jsons_fallback(tmp_path: Path) -> None:
     challenge.grade_solution.return_value = record
 
     result = grade_existing_challenge(state, challenge)
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.issues_resolved is True
     assert result.score.score == 1.0
 
@@ -462,7 +463,7 @@ def test_grade_existing_challenge_matching_disclosure(tmp_path: Path) -> None:
     challenge.grade_solution.return_value = record
 
     result = grade_existing_challenge(state, challenge)
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.issues_resolved is True
     assert result.reprompt is None
     assert result.score.score == 1.0
@@ -503,7 +504,7 @@ def test_grade_existing_challenge_reprompt_on_mismatch(tmp_path: Path) -> None:
     challenge.grade_solution.return_value = record
 
     result = grade_existing_challenge(state, challenge)
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.issues_resolved is False
     assert result.score.score == 0.8
     assert result.reprompt is not None
@@ -542,8 +543,8 @@ def test_run_test_grader(tmp_path: Path) -> None:
         result = run_test_grader(run)
 
     assert result.overall_score == 1.0
-    assert (tmp_path / "test_grader_results.json").is_file()
-    assert not (tmp_path / "results.json").exists()
+    assert (tmp_path / "test_grader_results.toml").is_file()
+    assert not (tmp_path / "results.toml").exists()
 
 
 def test_grade_existing_challenge_reprompt_on_failed_attempted_poc(tmp_path: Path) -> None:
@@ -586,7 +587,7 @@ def test_grade_existing_challenge_reprompt_on_failed_attempted_poc(tmp_path: Pat
     challenge.grade_solution.return_value = record
 
     result = grade_existing_challenge(state, challenge)
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.issues_resolved is False
     assert result.score.score == 0.0
     assert result.reprompt is not None
@@ -628,7 +629,7 @@ def test_grade_existing_challenge_reprompt_on_cheating(tmp_path: Path) -> None:
     challenge.grade_solution.return_value = record
 
     result = grade_existing_challenge(state, challenge)
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.issues_resolved is False
     assert result.score.score == 0.0
     assert result.reprompt is not None
@@ -680,8 +681,8 @@ def test_run_challenge_passes_limits_and_records_limit_exceeded(tmp_path: Path) 
     assert isinstance(result, AndroidChallengeResult)
     assert result.limit_exceeded == "turn_limit limit reached (5)"
     solution_dir = tmp_path / "limits-test"
-    res_json = (solution_dir / "results.json").read_text()
-    assert '"limit_exceeded": "turn_limit limit reached (5)"' in res_json
+    res_toml = (solution_dir / "results.toml").read_text()
+    assert 'limit_exceeded = "turn_limit limit reached (5)"' in res_toml
 
 
 def test_run_benchmark_aggregates_limits_exceeded(tmp_path: Path) -> None:
@@ -704,7 +705,7 @@ def test_run_benchmark_aggregates_limits_exceeded(tmp_path: Path) -> None:
 
     assert isinstance(benchmark_result, AndroidBenchmarkResult)
     assert benchmark_result.limits_exceeded == {"ch1": "turn_limit limit reached (5)"}
-    saved_data = json.loads((tmp_path / "results.json").read_text())
+    saved_data = tomllib.loads((tmp_path / "results.toml").read_text())
     assert "limits_exceeded" not in saved_data
     assert "scores" not in saved_data
     assert "finished_challenges" not in saved_data
@@ -723,8 +724,8 @@ def test_grade_existing_challenge_preserves_limit_exceeded(tmp_path: Path) -> No
 
     solution_dir = tmp_path / challenge.name
     solution_dir.mkdir()
-    (solution_dir / "results.json").write_text(
-        json.dumps({"limit_exceeded": "time_limit limit reached (300)"})
+    (solution_dir / "results.toml").write_text(
+        'limit_exceeded = "time_limit limit reached (300)"\n'
     )
     transcript = tmp_path / f"{challenge.name}_transcript.json"
     transcript.write_text(json.dumps({"kind": "ai_text", "text": "poc report"}) + "\n")
@@ -752,7 +753,7 @@ def test_grade_existing_challenge_preserves_limit_exceeded(tmp_path: Path) -> No
     result = grade_existing_challenge(state, challenge)
     assert isinstance(result, AndroidChallengeResult)
     assert result.limit_exceeded == "time_limit limit reached (300)"
-    assert isinstance(result.score, ChallengeScore)
+    assert isinstance(result.score, float)
     assert result.score.score == 1.0
 
 

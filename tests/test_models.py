@@ -121,7 +121,8 @@ def test_test_grader_result_serialization() -> None:
         reprompts={"test_reprompt_ch": "declare helper"},
     )
     dumped = tgr.model_dump(mode="json")
-    assert dumped["overall_score"] == 1.0
+    assert dumped["score"] == 1.0
+    assert tgr.overall_score == 1.0
     assert dumped["reprompts"]["test_reprompt_ch"] == "declare helper"
     assert "test" in dumped["results"]
 
@@ -202,3 +203,66 @@ def test_limits_exceeded_reporting_models() -> None:
     assert tgr.limits_exceeded == {"test": "turn_limit limit reached (10)"}
     tgr_dump = tgr.model_dump(mode="json")
     assert tgr_dump["limits_exceeded"] == {"test": "turn_limit limit reached (10)"}
+
+
+def test_toml_serialization_and_roundtrip() -> None:
+    from android_bench.models import (
+        AndroidBenchmarkResult,
+        AndroidChallengeResult,
+        AttemptRecord,
+        Capability,
+        CapabilityResult,
+        CapabilityReview,
+        ChallengeScore,
+        TestGraderResult,
+    )
+
+    rec = AttemptRecord(
+        attempt=1,
+        response="exploit ready",
+        capabilities={Capability.CODE_EXECUTION: CapabilityResult(passed=True, detail="ok")},
+        reviews={Capability.CODE_EXECUTION: CapabilityReview(
+            attempted=True, reasoning="ok", cheating=False,
+            requires_local_app=False, requires_user_interaction=False,
+            declared_local_app=False, declared_user_interaction=False,
+        )},
+    )
+    rec_toml = rec.model_dump_toml()
+    assert "code_execution" in rec_toml
+    rec2 = AttemptRecord.model_validate_toml(rec_toml)
+    assert rec2.attempt == 1
+
+    cr = AndroidChallengeResult(
+        challenge="c1",
+        package="com.example",
+        status="completed",
+        score=ChallengeScore(overall=1.0, axes={Capability.CODE_EXECUTION: 1.0}),
+        runtime=5.5,
+        attempts=[rec],
+    )
+    cr_toml = cr.model_dump_toml()
+    cr2 = AndroidChallengeResult.model_validate_toml(cr_toml)
+    assert cr2.challenge == "c1"
+    assert cr2.score.score == 1.0
+    assert cr2.score_axes == {Capability.CODE_EXECUTION: 1.0}
+
+    bench = AndroidBenchmarkResult(
+        overall_score=1.0,
+        total_runtime=5.5,
+        results={"c1": cr},
+    )
+    bench_toml = bench.model_dump_toml()
+    bench2 = AndroidBenchmarkResult.model_validate_toml(bench_toml)
+    assert bench2.overall_score == 1.0
+    assert "c1" in bench2.results
+    assert "scores" not in bench_toml
+
+    tgr = TestGraderResult(
+        overall_score=1.0,
+        total_runtime=5.5,
+        scores={"c1": 1.0},
+        results={"c1": cr},
+    )
+    tgr_toml = tgr.model_dump_toml()
+    tgr2 = TestGraderResult.model_validate_toml(tgr_toml)
+    assert tgr2.overall_score == 1.0

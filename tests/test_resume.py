@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import tomllib
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -69,8 +70,8 @@ def test_resume_challenge_already_completed(tmp_path: Path) -> None:
         runtime=12.5,
         session_id="done_sess_1",
     )
-    (solution_dir / "results.json").write_text(
-        existing_result.model_dump_json(indent=2)
+    (solution_dir / "results.toml").write_text(
+        existing_result.model_dump_toml()
     )
 
     with (
@@ -100,13 +101,8 @@ def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:
 
     solution_dir = tmp_path / challenge.name
     solution_dir.mkdir()
-    (solution_dir / "results.json").write_text(
-        json.dumps({
-            "status": "grading",
-            "session_id": "agent_finished_sess",
-            "current_attempt": 1,
-            "reprompts_used": 0,
-        })
+    (solution_dir / "results.toml").write_text(
+        'status = "grading"\nsession_id = "agent_finished_sess"\ncurrent_attempt = 1\nreprompts_used = 0\n'
     )
 
     # Transcript contains session_end event and final response
@@ -154,8 +150,8 @@ def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:
 
     assert isinstance(result, AndroidChallengeResult)
     assert result.status == "completed"
-    assert (solution_dir / "results.json").is_file()
-    saved = json.loads((solution_dir / "results.json").read_text())
+    assert (solution_dir / "results.toml").is_file()
+    saved = tomllib.loads((solution_dir / "results.toml").read_text())
     assert saved["status"] == "completed"
 
 
@@ -172,13 +168,8 @@ def test_resume_challenge_interrupted_agent(tmp_path: Path) -> None:
 
     solution_dir = tmp_path / challenge.name
     solution_dir.mkdir()
-    (solution_dir / "results.json").write_text(
-        json.dumps({
-            "status": "running",
-            "session_id": "interrupted_sess_1",
-            "current_attempt": 1,
-            "reprompts_used": 0,
-        })
+    (solution_dir / "results.toml").write_text(
+        'status = "running"\nsession_id = "interrupted_sess_1"\ncurrent_attempt = 1\nreprompts_used = 0\n'
     )
 
     # Transcript has session_info but NO session_end (agent died mid-run)
@@ -228,11 +219,8 @@ def test_resume_challenge_fallback_when_resumed_agent_unavailable(tmp_path: Path
 
     solution_dir = tmp_path / challenge.name
     solution_dir.mkdir()
-    (solution_dir / "results.json").write_text(
-        json.dumps({
-            "status": "running",
-            "session_id": "missing_session",
-        })
+    (solution_dir / "results.toml").write_text(
+        'status = "running"\nsession_id = "missing_session"\n'
     )
 
     fresh_result = AndroidChallengeResult(
@@ -279,13 +267,13 @@ def test_resume_benchmark_skips_completed_and_runs_incomplete(tmp_path: Path) ->
         reprompts_used=0,
         runtime=10.0,
     )
-    (ch1_dir / "results.json").write_text(ch1_result.model_dump_json(indent=2))
+    (ch1_dir / "results.toml").write_text(ch1_result.model_dump_toml())
 
     # ch2 is incomplete
     ch2_dir = tmp_path / "ch2"
     ch2_dir.mkdir()
-    (ch2_dir / "results.json").write_text(
-        json.dumps({"status": "running", "current_attempt": 1})
+    (ch2_dir / "results.toml").write_text(
+        'status = "running"\ncurrent_attempt = 1\n'
     )
 
     ch2_score = _sample_exploit_score("ch2")
@@ -332,11 +320,11 @@ def test_resume_benchmark_skips_completed_and_runs_incomplete(tmp_path: Path) ->
     assert "ch2" in final_result.scores
     assert "ch3" in final_result.scores
 
-    # Check root results.json
-    root_json = json.loads((tmp_path / "results.json").read_text())
-    assert "finished_challenges" not in root_json
-    assert "scores" not in root_json
-    assert "limits_exceeded" not in root_json
-    assert root_json["results"]["ch1"]["status"] == "completed"
-    assert root_json["results"]["ch2"]["status"] == "completed"
-    assert root_json["results"]["ch3"]["status"] == "completed"
+    # Check root results.toml
+    root_toml = tomllib.loads((tmp_path / "results.toml").read_text())
+    assert "finished_challenges" not in root_toml
+    assert "scores" not in root_toml
+    assert "limits_exceeded" not in root_toml
+    assert root_toml["results"]["ch1"]["status"] == "completed"
+    assert root_toml["results"]["ch2"]["status"] == "completed"
+    assert root_toml["results"]["ch3"]["status"] == "completed"

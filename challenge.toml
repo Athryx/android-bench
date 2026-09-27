@@ -1,0 +1,19 @@
+name = "run1"
+num_instances = 5
+challenges = [
+    "element",
+    "shareit",
+    "fbreader",
+    "brave",
+    "vlc",
+]
+harness = "pi_plus"
+internet_enabled = true
+max_reprompts = 2
+
+[model_config]
+model = "deepseek-v4.1-flash"
+model_effort = "high"
+
+[limits]
+time_limit = 14400

@@ -60,7 +60,7 @@ def run_command(
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="Benchmark JSON configuration.",
+        help="Benchmark configuration file (TOML or JSON).",
     ),
     results: Path = typer.Option(
         ...,
@@ -124,7 +124,7 @@ def run_command(
         benchmark_config.limits = Limits(**base_limits)
 
     results.mkdir(parents=True, exist_ok=True)
-    (results / "challenge.json").write_text(benchmark_config.formatted_json())
+    (results / "challenge.toml").write_text(benchmark_config.formatted_toml())
 
     dated_name = format_dated_name(benchmark_config.name)
 
@@ -177,7 +177,7 @@ def resume_command(
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="Optional benchmark JSON configuration override (defaults to challenge.json in results directory).",
+        help="Optional benchmark configuration override (defaults to challenge.toml in results directory).",
     ),
     token_limit: int | None = typer.Option(
         None,
@@ -214,10 +214,17 @@ def resume_command(
         )
 
     resolved_config: Path | None = _unwrap(config)
-    config_file = resolved_config or (target_results / "challenge.json")
+    if resolved_config is not None:
+        config_file = resolved_config
+    elif (target_results / "challenge.toml").is_file():
+        config_file = target_results / "challenge.toml"
+    elif (target_results / "challenge.json").is_file():
+        config_file = target_results / "challenge.json"
+    else:
+        config_file = target_results / "challenge.toml"
     if not config_file.is_file():
         raise typer.BadParameter(
-            f"challenge.json not found in {target_results}; please specify --config",
+            f"challenge.toml not found in {target_results}; please specify --config",
             param_hint="--config",
         )
 
@@ -296,7 +303,7 @@ def test_grader_command(
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="Optional benchmark JSON configuration override (defaults to challenge.json in results directory).",
+        help="Optional benchmark configuration override (defaults to challenge.toml in results directory).",
     ),
 ) -> None:
     """Run the grader against existing challenge solutions in a results directory."""
@@ -312,10 +319,17 @@ def test_grader_command(
         )
 
     resolved_config: Path | None = _unwrap(config)
-    config_file = resolved_config or (target_results / "challenge.json")
+    if resolved_config is not None:
+        config_file = resolved_config
+    elif (target_results / "challenge.toml").is_file():
+        config_file = target_results / "challenge.toml"
+    elif (target_results / "challenge.json").is_file():
+        config_file = target_results / "challenge.json"
+    else:
+        config_file = target_results / "challenge.toml"
     if not config_file.is_file():
         raise typer.BadParameter(
-            f"challenge.json not found in {target_results}; please specify --config",
+            f"challenge.toml not found in {target_results}; please specify --config",
             param_hint="--config",
         )
 

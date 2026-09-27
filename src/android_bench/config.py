@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tomllib
 
 from kexploit_agent import HarnessType, Limits, ModelConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import tomli_w
 
 from android_bench.catalog import ChallengeName
 
@@ -59,7 +61,18 @@ class BenchmarkConfig(BaseModel):
 
     @classmethod
     def from_file(cls, path: Path) -> BenchmarkConfig:
-        return cls.model_validate_json(path.read_text())
+        content = path.read_text(encoding="utf-8")
+        if path.suffix == ".toml":
+            return cls.model_validate(tomllib.loads(content))
+        if path.suffix == ".json":
+            return cls.model_validate_json(content)
+        try:
+            return cls.model_validate(tomllib.loads(content))
+        except Exception:
+            return cls.model_validate_json(content)
+
+    def formatted_toml(self) -> str:
+        return tomli_w.dumps(self.model_dump(mode="json", by_alias=True, exclude_none=True))
 
     def formatted_json(self) -> str:
         return json.dumps(self.model_dump(mode="json", by_alias=True), indent=2) + "\n"

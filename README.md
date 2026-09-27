@@ -43,33 +43,34 @@ records the exact resolved commit for reproducible installs.
 
 ## Run
 
-Copy and edit `benchmark_config.example.json`, then run:
+Copy and edit `benchmark_config.example.toml`, then run:
 
 ```sh
-uv run android-bench run --config benchmark_config.json --results results/
+uv run android-bench run --config benchmark_config.toml --results results/
 ```
 
 Omit `challenges` to run all 12, or select a subset by registry name:
 
-```json
-{
-  "name": "challenge-6.1-eval",
-  "num_instances": 2,
-  "challenges": ["firefox", "element"],
-  "harness": "codex",
-  "internet_enabled": true,
-  "summarize": true,
-  "model_config": {
-    "model": "gpt-6-astra",
-    "model_effort": "xhigh",
-    "temperature": 0.2,
-    "max_tokens": 65536,
-    "top_p": 0.95,
-    "timeout_seconds": 3600,
-    "thinking_budget": 32768
-  },
-  "max_reprompts": 2
-}
+```toml
+name = "challenge-6.1-eval"
+num_instances = 2
+challenges = [
+  "firefox",
+  "element",
+]
+harness = "codex"
+internet_enabled = true
+summarize = true
+max_reprompts = 2
+
+[model_config]
+model = "gpt-6-astra"
+model_effort = "xhigh"
+temperature = 0.2
+max_tokens = 65536
+top_p = 0.95
+timeout_seconds = 3600
+thinking_budget = 32768
 ```
 
 `internet_enabled` is one global switch applied to every selected challenge.
@@ -102,24 +103,24 @@ Limits can be configured per benchmark run to enforce budgets across tokens, age
 - `time_limit`: Maximum solver duration in seconds (also accepts alias `timeout_seconds`).
 - `dollar_limit`: Maximum API spend in USD.
 
-Limits can be configured in the benchmark JSON under `"limits": { ... }` or as flat keys in the configuration, or overridden via CLI flags:
+Limits can be configured in the benchmark configuration under `[limits]` or as flat keys in the configuration, or overridden via CLI flags:
 
 ```sh
-uv run android-bench run --config benchmark_config.json --results results/ \
+uv run android-bench run --config benchmark_config.toml --results results/ \
   --token-limit 200000 \
   --turn-limit 30 \
   --timeout 1800 \
   --dollar-limit 5.00
 ```
 
-When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in each challenge result and aggregated under `limits_exceeded` in `test_grader_results.json`.
+When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in each challenge result and aggregated under `limits_exceeded` in `test_grader_results.toml`.
 
 ### Test Grader
 
 To test or evaluate the grader against an existing results directory without re-running the solver agents:
 
 ```sh
-uv run android-bench run --config benchmark_config.json --results results/ --test-grader
+uv run android-bench run --config benchmark_config.toml --results results/ --test-grader
 ```
 
 When `--test-grader` is specified:
@@ -128,7 +129,7 @@ When `--test-grader` is specified:
 - The final agent response is extracted directly from `<results>/<challenge>_transcript.json`.
 - Grader instances run concurrently, bounded by `num_instances`.
 - If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.
-- The evaluation is saved to `<results>/test_grader_results.json` without modifying `results.json`.
+- The evaluation is saved to `<results>/test_grader_results.toml` without modifying `results.toml`.
 
 The benchmark boots `challenge6` with template app loading enabled, so all 12 target apps are pre-installed
 by Cuttlefish. The sandbox only provisions the benchmark infrastructure apps (the grader app and any challenge
@@ -166,16 +167,17 @@ Dedicated test challenges are available to verify each grader individually, as w
 These challenges use a vulnerable test app (`com.purdue.androidbench.testapp`, `apps/test_app.apk`, built from `docker/test-app/`) with an intentional backdoor TCP socket service on port 8888. The solver agent's prompt automatically documents the vulnerability, how to start the app and port-forward the socket via ADB, and the socket command protocol.
 
 To run a test challenge:
-```json
-{
-  "name": "test-eval",
-  "num_instances": 1,
-  "challenges": ["test_code_execution", "test_all"],
-  "harness": "codex",
-  "model_config": {
-    "model": "gpt-6-astra"
-  }
-}
+```toml
+name = "test-eval"
+num_instances = 1
+challenges = [
+  "test_code_execution",
+  "test_all",
+]
+harness = "codex"
+
+[model_config]
+model = "gpt-6-astra"
 ```
 
 ## Development

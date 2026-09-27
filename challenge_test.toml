@@ -1,0 +1,15 @@
+name = "run1"
+num_instances = 5
+challenges = [
+    "test_code_execution",
+]
+harness = "pi_plus"
+internet_enabled = true
+max_reprompts = 2
+
+[model_config]
+model = "deepseek-v4.1-flash"
+model_effort = "high"
+
+[limits]
+time_limit = 14400

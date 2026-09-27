@@ -25,6 +25,7 @@ from android_bench.models import (
     AttemptRecord,
     Capability,
     ChallengeScore,
+    FloatScore,
     calculate_scores,
 )
 
@@ -205,12 +206,12 @@ disclose for each:
             raise TypeError(f"Unexpected instance_or_state: {type(instance_or_state)}")
         audit_dir = solution_dir / "grading"
         audit_dir.mkdir(parents=True, exist_ok=True)
-        (audit_dir / f"attempt-{attempt}.json").write_text(
-            record.model_dump_json(indent=2)
+        (audit_dir / f"attempt-{attempt}.toml").write_text(
+            record.model_dump_toml()
         )
         return record
 
-    def run(
+    def run(  # type: ignore[override]
         self,
         instance: ChallengeInstance,
         *,
@@ -239,7 +240,8 @@ disclose for each:
                 challenge=self.name,
                 package=self.definition.package,
                 status=status,
-                score=ChallengeScore(overall=overall_score, axes=axes),
+                score=FloatScore(overall_score),
+                axes=axes,
                 limit_exceeded=limit_exceeded,
                 session_id=session_id,
                 attempts=attempts,

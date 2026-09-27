@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
+import tomllib
 from typing import Any, Self
+import tomli_w
 
 from kbench import BenchmarkResult, ChallengeResult, Score
 from pydantic import (
@@ -13,6 +15,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import core_schema
 
 
 class Capability(StrEnum):
@@ -133,6 +136,13 @@ class AttemptRecord(BaseModel):
     def issues_resolved(self) -> bool:
         return not self.issue_capabilities
 
+    def model_dump_toml(self) -> str:
+        return tomli_w.dumps(self.model_dump(mode="json", exclude_none=True))
+
+    @classmethod
+    def model_validate_toml(cls, toml_str: str) -> Self:
+        return cls.model_validate(tomllib.loads(toml_str))
+
 
 def calculate_scores(attempt: AttemptRecord) -> tuple[float, dict[Capability, float]]:
     score_axes: dict[Capability, float] = {}
@@ -161,13 +171,34 @@ def calculate_scores(attempt: AttemptRecord) -> tuple[float, dict[Capability, fl
     return overall, score_axes
 
 
+class FloatScore(float):
+    """Float wrapper that allows `.score` and `.overall` property access for kbench compatibility."""
+
+    @property
+    def score(self) -> float:
+        return float(self)
+
+    @property
+    def overall(self) -> float:
+        return float(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: Any
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.float_schema(),
+        )
+
+
 class ChallengeScore(Score):
     model_config = ConfigDict(extra="ignore")
 
     overall: float = 0.0
     axes: dict[Capability, float] = Field(default_factory=dict)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def score(self) -> float:
         return self.overall
@@ -225,7 +256,7 @@ class AndroidExploitScore(ChallengeScore):
             return ov
         return self.overall
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def score(self) -> float:
         return self.severity
@@ -237,7 +268,8 @@ class AndroidChallengeResult(ChallengeResult):
     challenge: str = ""
     package: str = ""
     status: str = "completed"
-    score: SerializeAsAny[Score] = Field(default_factory=ChallengeScore)
+    score: FloatScore = Field(default_factory=lambda: FloatScore(0.0))  # type: ignore[assignment]
+    axes: dict[Capability, float] = Field(default_factory=dict)
     runtime: float = 0.0
     session_id: str | None = None
     limit_exceeded: str | None = None
@@ -249,8 +281,8 @@ class AndroidChallengeResult(ChallengeResult):
         if isinstance(data, dict):
             data = dict(data)
             score_val = data.get("score")
-            if isinstance(score_val, (int, float)):
-                data["score"] = ChallengeScore(overall=float(score_val))
+            if isinstance(score_val, (int, float, FloatScore)):
+                data["score"] = FloatScore(float(score_val))
             elif isinstance(score_val, dict):
                 nested = score_val
                 if "challenge" in nested and not data.get("challenge"):
@@ -261,17 +293,17 @@ class AndroidChallengeResult(ChallengeResult):
                     data["attempts"] = nested["attempts"]
                 if "limit_exceeded" in nested and not data.get("limit_exceeded"):
                     data["limit_exceeded"] = nested["limit_exceeded"]
+                if "axes" in nested and "axes" not in data:
+                    data["axes"] = nested["axes"]
 
-                if "overall" in nested:
-                    data["score"] = ChallengeScore.model_validate(nested)
-                elif "attempts" in nested and nested["attempts"]:
-                    data["score"] = AndroidExploitScore.model_validate(nested)
-                elif "score" in nested and isinstance(nested["score"], (int, float)):
-                    data["score"] = ChallengeScore(overall=float(nested["score"]))
+                if "score" in nested and isinstance(nested["score"], (int, float)):
+                    data["score"] = FloatScore(float(nested["score"]))
+                elif "overall" in nested and isinstance(nested["overall"], (int, float)):
+                    data["score"] = FloatScore(float(nested["overall"]))
                 elif "severity" in nested and isinstance(nested["severity"], (int, float)):
-                    data["score"] = ChallengeScore(overall=float(nested["severity"]))
+                    data["score"] = FloatScore(float(nested["severity"]))
                 else:
-                    data["score"] = ChallengeScore()
+                    data["score"] = FloatScore(0.0)
             elif isinstance(score_val, Score):
                 score_obj = score_val
                 if hasattr(score_obj, "challenge") and not data.get("challenge"):
@@ -282,6 +314,24 @@ class AndroidChallengeResult(ChallengeResult):
                     data["attempts"] = score_obj.attempts
                 if hasattr(score_obj, "limit_exceeded") and not data.get("limit_exceeded"):
                     data["limit_exceeded"] = score_obj.limit_exceeded
+                if hasattr(score_obj, "axes") and "axes" not in data:
+                    data["axes"] = score_obj.axes
+                val = score_obj.score if hasattr(score_obj, "score") else float(getattr(score_obj, "overall", 0.0))
+                data["score"] = FloatScore(val)
+            elif score_val is None:
+                attempts = data.get("attempts")
+                if attempts and isinstance(attempts, list) and len(attempts) > 0:
+                    last = attempts[-1]
+                    try:
+                        rec = last if isinstance(last, AttemptRecord) else AttemptRecord.model_validate(last)
+                        ov, ax = calculate_scores(rec)
+                        data["score"] = FloatScore(ov)
+                        if "axes" not in data:
+                            data["axes"] = ax
+                    except Exception:
+                        data["score"] = FloatScore(0.0)
+                else:
+                    data["score"] = FloatScore(0.0)
         return data
 
     @property
@@ -306,30 +356,38 @@ class AndroidChallengeResult(ChallengeResult):
 
     @property
     def score_axes(self) -> dict[Capability, float]:
-        if isinstance(self.score, ChallengeScore):
-            return self.score.axes
-        return {}
+        return self.axes
 
     @property
     def overall_score(self) -> float:
-        if isinstance(self.score, ChallengeScore):
-            return self.score.overall
-        if hasattr(self.score, "score"):
-            return float(self.score.score)
         return float(self.score)
+
+    def model_dump_toml(self) -> str:
+        return tomli_w.dumps(self.model_dump(mode="json", exclude_none=True, by_alias=False))
+
+    @classmethod
+    def model_validate_toml(cls, toml_str: str) -> Self:
+        return cls.model_validate(tomllib.loads(toml_str))
 
 
 class AndroidBenchmarkResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    overall_score: float
-    total_runtime: float
+    score: float = 0.0
+    total_runtime: float = 0.0
     results: dict[str, AndroidChallengeResult] = Field(default_factory=dict)
+
+    @property
+    def overall_score(self) -> float:
+        return self.score
 
     @model_validator(mode="before")
     @classmethod
     def _populate_from_scores(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            if "score" not in data and "overall_score" in data:
+                data = dict(data)
+                data["score"] = data["overall_score"]
             if (
                 ("results" not in data or not data["results"])
                 and "scores" in data
@@ -338,10 +396,9 @@ class AndroidBenchmarkResult(BaseModel):
                 data = dict(data)
                 built_results: dict[str, Any] = {}
                 for k, score_val in data["scores"].items():
+                    raw_val = score_val if isinstance(score_val, (int, float)) else getattr(score_val, "score", 0.0)
                     built_results[k] = AndroidChallengeResult(
-                        score=score_val
-                        if isinstance(score_val, Score)
-                        else AndroidExploitScore.model_validate(score_val)
+                        score=FloatScore(float(raw_val))
                     )
                 data["results"] = built_results
         return data
@@ -363,7 +420,7 @@ class AndroidBenchmarkResult(BaseModel):
     @property
     def scores(self) -> dict[str, float]:
         return {
-            name: res.score
+            name: float(res.score)
             for name, res in self.results.items()
             if getattr(res, "score", None) is not None
         }
@@ -385,15 +442,57 @@ class AndroidBenchmarkResult(BaseModel):
             or getattr(res, "issues_resolved", False) is True
         ]
 
+    def model_dump_toml(self) -> str:
+        return tomli_w.dumps(self.model_dump(mode="json", exclude_none=True, by_alias=False))
+
+    @classmethod
+    def model_validate_toml(cls, toml_str: str) -> Self:
+        return cls.model_validate(tomllib.loads(toml_str))
 
 
 class TestGraderResult(BaseModel):
     __test__ = False
     model_config = ConfigDict(extra="forbid")
 
-    overall_score: float
-    total_runtime: float
+    score: float = 0.0
+    total_runtime: float = 0.0
     scores: dict[str, float] = Field(default_factory=dict)
     results: dict[str, SerializeAsAny[ChallengeResult]] = Field(default_factory=dict)
     reprompts: dict[str, str] = Field(default_factory=dict)
     limits_exceeded: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def overall_score(self) -> float:
+        return self.score
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_score_field(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            data = dict(data)
+            if "score" not in data and "overall_score" in data:
+                data["score"] = data.pop("overall_score")
+            elif "overall_score" in data:
+                data.pop("overall_score")
+        return data
+
+    @field_validator("results", mode="before")
+    @classmethod
+    def _coerce_results(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            return {
+                k: (
+                    AndroidChallengeResult.model_validate(val)
+                    if isinstance(val, dict)
+                    else val
+                )
+                for k, val in v.items()
+            }
+        return v
+
+    def model_dump_toml(self) -> str:
+        return tomli_w.dumps(self.model_dump(mode="json", exclude_none=True, by_alias=False))
+
+    @classmethod
+    def model_validate_toml(cls, toml_str: str) -> Self:
+        return cls.model_validate(tomllib.loads(toml_str))
