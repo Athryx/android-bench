@@ -7,16 +7,14 @@ from kbench import BenchmarkRun, ChallengeResult, GlobalRunState, Score
 from kexploit_agent import Model, ModelConfig
 
 from android_bench.challenge import AndroidAppChallenge
-from android_bench.grader import AttemptGrade
 from android_bench.models import (
     AndroidBenchmarkResult,
     AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
     Capability,
+    CapabilityReview,
     CapabilityResult,
-    DeliveryClass,
-    ExploitAssessment,
 )
 from android_bench.runner import (
     resume_benchmark,
@@ -33,14 +31,10 @@ class _ScoreStub(Score):
 
 
 def _sample_exploit_score(challenge_name: str) -> AndroidExploitScore:
-    assessment = ExploitAssessment(
-        requires_local_app=False,
-        requires_user_interaction=False,
-        cheating=False,
-        declared_local_app=False,
-        declared_user_interaction=False,
-        delivery_class=DeliveryClass.REMOTE_ZERO_CLICK,
-        reason="Clean exploit",
+    review = CapabilityReview(
+        attempted=True, reasoning="Clean exploit", cheating=False,
+        requires_local_app=False, requires_user_interaction=False,
+        declared_local_app=False, declared_user_interaction=False,
     )
     capabilities = {
         Capability.CODE_EXECUTION: CapabilityResult(passed=True, detail="success")
@@ -49,16 +43,12 @@ def _sample_exploit_score(challenge_name: str) -> AndroidExploitScore:
         attempt=1,
         response="Exploit ready",
         capabilities=capabilities,
-        assessment=assessment,
+        reviews={Capability.CODE_EXECUTION: review},
     )
     return AndroidExploitScore(
         challenge=challenge_name,
         package=f"com.{challenge_name}",
-        capabilities=capabilities,
-        assessment=assessment,
         attempts=[record],
-        reprompts_used=0,
-        disclosure_resolved=True,
     )
 
 
@@ -95,7 +85,7 @@ def test_resume_challenge_already_completed(tmp_path: Path) -> None:
     assert result.status == "completed"
     assert result.session_id == "done_sess_1"
     assert isinstance(result.score, AndroidExploitScore)
-    assert result.score.disclosure_resolved is True
+    assert result.score.issues_resolved is True
 
 
 def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:

@@ -23,13 +23,12 @@ from kexploit_agent import AgentGroup, Limits, summarize_log
 from ksandbox import DockerSandboxProvider, MountInfo
 
 from android_bench.challenge import AndroidAppChallenge
-from android_bench.grader import format_reprompt, get_attempt_issues
+from android_bench.grader import format_reprompt
 from android_bench.models import (
     AndroidBenchmarkResult,
     AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
-    Capability,
     TestGraderResult,
 )
 from android_bench.sandbox import AndroidBenchSandbox
@@ -106,7 +105,7 @@ def _save_benchmark_progress(
         if getattr(result, "status", None) == "completed"
         or (
             result.score is not None
-            and getattr(result.score, "disclosure_resolved", None) is not None
+            and getattr(result.score, "issues_resolved", None) is not None
         )
     ]
     total_runtime = time.perf_counter() - total_start
@@ -241,7 +240,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
             if data.get("status") == "completed" and data.get("score") is not None:
                 return AndroidChallengeResult.model_validate(data)
             if data.get("score") is not None and isinstance(data.get("score"), dict):
-                if data["score"].get("disclosure_resolved") is not None:
+                if data["score"].get("issues_resolved") is not None:
                     return AndroidChallengeResult.model_validate(data)
         except Exception:
             pass
@@ -645,43 +644,18 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
     if not callable(grade_solution):
         raise TypeError(f"Challenge {challenge.name} does not support grade_solution")
 
-    graded, record = grade_solution((state, solution), response, attempt=1)
+    record = grade_solution((state, solution), response, attempt=1)
 
     definition = getattr(challenge, "definition", None)
     package = getattr(definition, "package", "unknown")
 
-    attempted: set[Capability] = getattr(graded, "attempted", set())
-    issues = get_attempt_issues(
-        graded.capabilities, graded.assessment, attempted
+    score = AndroidExploitScore(
+        challenge=challenge.name,
+        package=package,
+        attempts=[record],
+        reprompt=format_reprompt(record) if record.issue_capabilities else None,
+        limit_exceeded=existing_limit,
     )
-
-    if not issues:
-        score = AndroidExploitScore(
-            challenge=challenge.name,
-            package=package,
-            capabilities=graded.capabilities,
-            assessment=graded.assessment,
-            attempts=[record],
-            reprompts_used=0,
-            disclosure_resolved=True,
-            reprompt=None,
-            limit_exceeded=existing_limit,
-        )
-    else:
-        reprompt_msg = format_reprompt(
-            graded.capabilities, graded.assessment, attempted
-        )
-        score = AndroidExploitScore(
-            challenge=challenge.name,
-            package=package,
-            capabilities=graded.capabilities,
-            assessment=graded.assessment,
-            attempts=[record],
-            reprompts_used=0,
-            disclosure_resolved=False,
-            reprompt=reprompt_msg,
-            limit_exceeded=existing_limit,
-        )
 
     return AndroidChallengeResult(
         score=score,
@@ -741,4 +715,3 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         grader_result.model_dump_json(indent=2)
     )
     return grader_result
-

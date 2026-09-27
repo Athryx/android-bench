@@ -15,10 +15,8 @@ from android_bench.catalog import ChallengeDefinition
 logger = logging.getLogger(__name__)
 from android_bench.grader import (
     GRADERS,
-    AttemptGrade,
     CapabilityGrader,
     format_reprompt,
-    get_attempt_issues,
     grade_attempt,
 )
 from android_bench.models import (
@@ -187,19 +185,13 @@ disclose for each:
         instance_or_state: ChallengeInstance | tuple[GlobalRunState, Path],
         response: str,
         attempt: int = 1,
-    ) -> tuple[AttemptGrade, AttemptRecord]:
-        graded = grade_attempt(
+    ) -> AttemptRecord:
+        record = grade_attempt(
             instance_or_state,
             self.definition,
             response,
             attempt,
             graders=self.graders,
-        )
-        record = AttemptRecord(
-            attempt=attempt,
-            response=response,
-            capabilities=graded.capabilities,
-            assessment=graded.assessment,
         )
         if isinstance(instance_or_state, ChallengeInstance):
             solution_dir = instance_or_state.solution
@@ -212,7 +204,7 @@ disclose for each:
         (audit_dir / f"attempt-{attempt}.json").write_text(
             record.model_dump_json(indent=2)
         )
-        return graded, record
+        return record
 
     def run(
         self,
@@ -250,6 +242,18 @@ disclose for each:
                     )
                 )
 
+        def _score(
+            reprompt: str | None = None,
+            limit_exceeded: str | None = None,
+        ) -> AndroidExploitScore:
+            return AndroidExploitScore(
+                challenge=self.name,
+                package=self.definition.package,
+                attempts=attempts,
+                reprompt=reprompt,
+                limit_exceeded=limit_exceeded,
+            )
+
         try:
             if initial_response is None:
                 if start_attempt_index == 0:
@@ -275,14 +279,25 @@ disclose for each:
                             response = ""
                 elif attempts:
                     last_record = attempts[-1]
-                    attempted_caps = {
-                        cap for cap, r in last_record.capabilities.items() if r.passed
-                    }
-                    resume_reprompt = format_reprompt(
-                        last_record.capabilities,
-                        last_record.assessment,
-                        attempted_caps,
-                    )
+                    if not last_record.issue_capabilities:
+                        score = _score()
+                        _notify_progress(
+                            "completed",
+                            current_attempt=start_attempt_index,
+                            reprompts_used=score.reprompts_used,
+                            score=score,
+                        )
+                        return score
+                    resume_reprompt = format_reprompt(last_record)
+                    if start_attempt_index > self.max_reprompts:
+                        score = _score(reprompt=resume_reprompt)
+                        _notify_progress(
+                            "completed",
+                            current_attempt=start_attempt_index,
+                            reprompts_used=self.max_reprompts,
+                            score=score,
+                        )
+                        return score
                     _notify_progress(
                         "running",
                         current_attempt=start_attempt_index + 1,
@@ -310,35 +325,22 @@ disclose for each:
                     current_attempt=attempt_index + 1,
                     reprompts_used=attempt_index,
                 )
-                graded, record = self.grade_solution(
+                record = self.grade_solution(
                     instance,
                     response,
                     attempt=attempt_index + 1,
                 )
                 attempts.append(record)
 
-                attempted: set[Capability] = getattr(graded, "attempted", set())
-                issues = get_attempt_issues(
-                    graded.capabilities, graded.assessment, attempted
-                )
+                issues = record.issue_capabilities
 
                 if limit_exceeded_msg is not None:
                     reprompt_msg = (
-                        format_reprompt(graded.capabilities, graded.assessment, attempted)
+                        format_reprompt(record)
                         if issues
                         else None
                     )
-                    score = AndroidExploitScore(
-                        challenge=self.name,
-                        package=self.definition.package,
-                        capabilities=graded.capabilities,
-                        assessment=graded.assessment,
-                        attempts=attempts,
-                        reprompts_used=attempt_index,
-                        disclosure_resolved=not issues,
-                        reprompt=reprompt_msg,
-                        limit_exceeded=limit_exceeded_msg,
-                    )
+                    score = _score(reprompt_msg, limit_exceeded_msg)
                     _notify_progress(
                         "completed",
                         current_attempt=attempt_index + 1,
@@ -349,17 +351,7 @@ disclose for each:
                     return score
 
                 if not issues:
-                    score = AndroidExploitScore(
-                        challenge=self.name,
-                        package=self.definition.package,
-                        capabilities=graded.capabilities,
-                        assessment=graded.assessment,
-                        attempts=attempts,
-                        reprompts_used=attempt_index,
-                        disclosure_resolved=True,
-                        reprompt=None,
-                        limit_exceeded=None,
-                    )
+                    score = _score()
                     _notify_progress(
                         "completed",
                         current_attempt=attempt_index + 1,
@@ -368,21 +360,9 @@ disclose for each:
                     )
                     return score
 
-                reprompt_msg = format_reprompt(
-                    graded.capabilities, graded.assessment, attempted
-                )
+                reprompt_msg = format_reprompt(record)
                 if attempt_index == self.max_reprompts:
-                    score = AndroidExploitScore(
-                        challenge=self.name,
-                        package=self.definition.package,
-                        capabilities=graded.capabilities,
-                        assessment=graded.assessment,
-                        attempts=attempts,
-                        reprompts_used=attempt_index,
-                        disclosure_resolved=False,
-                        reprompt=reprompt_msg,
-                        limit_exceeded=None,
-                    )
+                    score = _score(reprompt_msg)
                     _notify_progress(
                         "completed",
                         current_attempt=attempt_index + 1,
@@ -391,17 +371,7 @@ disclose for each:
                     )
                     return score
 
-                intermediate_score = AndroidExploitScore(
-                    challenge=self.name,
-                    package=self.definition.package,
-                    capabilities=graded.capabilities,
-                    assessment=graded.assessment,
-                    attempts=attempts,
-                    reprompts_used=attempt_index,
-                    disclosure_resolved=False,
-                    reprompt=reprompt_msg,
-                    limit_exceeded=None,
-                )
+                intermediate_score = _score(reprompt_msg)
                 _notify_progress(
                     "running",
                     current_attempt=attempt_index + 2,
@@ -424,32 +394,19 @@ disclose for each:
                             response = ""
                     else:
                         response = ""
-                    graded, record = self.grade_solution(
+                    record = self.grade_solution(
                         instance,
                         response,
                         attempt=attempt_index + 2,
                     )
                     attempts.append(record)
-                    attempted_after: set[Capability] = getattr(graded, "attempted", set())
-                    issues_after = get_attempt_issues(
-                        graded.capabilities, graded.assessment, attempted_after
-                    )
+                    issues_after = record.issue_capabilities
                     reprompt_after = (
-                        format_reprompt(graded.capabilities, graded.assessment, attempted_after)
+                        format_reprompt(record)
                         if issues_after
                         else None
                     )
-                    score = AndroidExploitScore(
-                        challenge=self.name,
-                        package=self.definition.package,
-                        capabilities=graded.capabilities,
-                        assessment=graded.assessment,
-                        attempts=attempts,
-                        reprompts_used=attempt_index + 1,
-                        disclosure_resolved=not issues_after,
-                        reprompt=reprompt_after,
-                        limit_exceeded=limit_exceeded_msg,
-                    )
+                    score = _score(reprompt_after, limit_exceeded_msg)
                     _notify_progress(
                         "completed",
                         current_attempt=attempt_index + 2,
