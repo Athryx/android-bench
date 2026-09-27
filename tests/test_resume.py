@@ -83,9 +83,8 @@ def test_resume_challenge_already_completed(tmp_path: Path) -> None:
     mock_agent_resume.assert_not_called()
     assert isinstance(result, AndroidChallengeResult)
     assert result.status == "completed"
-    assert result.session_id == "done_sess_1"
-    assert isinstance(result.score, AndroidExploitScore)
-    assert result.score.issues_resolved is True
+    assert result.score.score == 1.0
+    assert result.issues_resolved is True
 
 
 def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:
@@ -335,7 +334,9 @@ def test_resume_benchmark_skips_completed_and_runs_incomplete(tmp_path: Path) ->
 
     # Check root results.json
     root_json = json.loads((tmp_path / "results.json").read_text())
-    assert set(root_json["finished_challenges"]) == {"ch1", "ch2", "ch3"}
+    assert "finished_challenges" not in root_json
+    assert "scores" not in root_json
+    assert "limits_exceeded" not in root_json
     assert root_json["results"]["ch1"]["status"] == "completed"
     assert root_json["results"]["ch2"]["status"] == "completed"
     assert root_json["results"]["ch3"]["status"] == "completed"

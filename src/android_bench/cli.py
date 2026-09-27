@@ -38,6 +38,12 @@ def _unwrap(val: Any) -> Any:
     return val
 
 
+def format_dated_name(base_name: str, now: datetime | None = None) -> str:
+    """Format a benchmark run name with date and time to the minute."""
+    dt = now or datetime.now().astimezone()
+    return f"{base_name} ({dt.strftime('%B')} {dt.day}, {dt.year}, {dt.strftime('%H:%M')})"
+
+
 @app.command()
 def setup() -> None:
     """Build the shared tool image and all 12 challenge images."""
@@ -120,8 +126,7 @@ def run_command(
     results.mkdir(parents=True, exist_ok=True)
     (results / "challenge.json").write_text(benchmark_config.formatted_json())
 
-    now = datetime.now().astimezone()
-    dated_name = f"{benchmark_config.name} ({now.strftime('%B')} {now.day}, {now.year})"
+    dated_name = format_dated_name(benchmark_config.name)
 
     selected_definitions = tuple(select_challenges(benchmark_config.challenges))
     challenges: list[Challenge] = [
@@ -255,8 +260,7 @@ def resume_command(
         )
         for definition in selected_definitions
     ]
-    now = datetime.now().astimezone()
-    dated_name = f"{benchmark_config.name} ({now.strftime('%B')} {now.day}, {now.year})"
+    dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,
         num_instances=benchmark_config.num_instances,
@@ -340,8 +344,7 @@ def test_grader_command(
         )
         for definition in selected_definitions
     ]
-    now = datetime.now().astimezone()
-    dated_name = f"{benchmark_config.name} ({now.strftime('%B')} {now.day}, {now.year})"
+    dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,
         num_instances=benchmark_config.num_instances,

@@ -309,7 +309,7 @@ def test_challenge_reprompts_on_failed_attempted_poc(monkeypatch: Any, tmp_path:
     assert "command not observed" in agent.prompts[1]
     assert score.reprompts_used == 1
     assert score.issues_resolved is True
-    assert score.score == 1.0
+    assert score.score.score == 1.0
 
 
 def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path: Path) -> None:
@@ -364,7 +364,7 @@ def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path
     assert "- Cheating: Detected." in agent.prompts[1]
     assert score.reprompts_used == 1
     assert score.issues_resolved is False
-    assert score.score == 0.0
+    assert score.score.score == 0.0
     assert score.reprompt is not None
     assert "- Cheating: Detected." in score.reprompt
 

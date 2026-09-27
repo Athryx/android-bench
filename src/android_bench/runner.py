@@ -29,7 +29,9 @@ from android_bench.models import (
     AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
+    ChallengeScore,
     TestGraderResult,
+    calculate_scores,
 )
 from android_bench.sandbox import AndroidBenchSandbox
 
@@ -86,39 +88,26 @@ def _copy_agent_context(
 
 def _save_benchmark_progress(
     output_folder: Path,
-    challenge_results: dict[str, ChallengeResult],
+    challenge_results: dict[str, Any],
     total_start: float,
 ) -> AndroidBenchmarkResult:
-    scores: dict[str, Score] = {
-        challenge_name: result.score
-        for challenge_name, result in challenge_results.items()
-        if result.score is not None
-    }
-    limits_exceeded: dict[str, str] = {
-        challenge_name: limit_msg
-        for challenge_name, result in challenge_results.items()
-        if (limit_msg := getattr(result, "limit_exceeded", None)) is not None
-    }
-    finished_challenges: list[str] = [
-        challenge_name
-        for challenge_name, result in challenge_results.items()
-        if getattr(result, "status", None) == "completed"
-        or (
-            result.score is not None
-            and getattr(result.score, "issues_resolved", None) is not None
-        )
+    scores = [
+        getattr(result, "score", 0.0)
+        for result in challenge_results.values()
+        if getattr(result, "score", None) is not None
+    ]
+    float_scores = [
+        float(s.score if hasattr(s, "score") and not isinstance(s, (int, float)) else s)
+        for s in scores
     ]
     total_runtime = time.perf_counter() - total_start
     overall = (
-        sum(s.score for s in scores.values()) / len(scores) if scores else 0.0
+        sum(float_scores) / len(float_scores) if float_scores else 0.0
     )
     benchmark_result = AndroidBenchmarkResult(
         overall_score=overall,
         total_runtime=total_runtime,
-        scores=scores,
         results=challenge_results,
-        limits_exceeded=limits_exceeded,
-        finished_challenges=finished_challenges,
     )
     (output_folder / "results.json").write_text(
         benchmark_result.model_dump_json(indent=2)
@@ -166,11 +155,10 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             str(raw_sid) if isinstance(raw_sid, (str, Path)) else None
         )
         init_result = AndroidChallengeResult(
-            score=None,
+            challenge=challenge.name,
             session_id=session_id,
             status="running",
-            current_attempt=1,
-            reprompts_used=0,
+            score=0.0,
             runtime=0.0,
         )
         (solution / "results.json").write_text(init_result.model_dump_json(indent=2))
@@ -179,16 +167,16 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             p_res.runtime = time.perf_counter() - start_time
             (solution / "results.json").write_text(p_res.model_dump_json(indent=2))
 
-        score: Score
+        outcome: Any
         try:
             with state.manage_agent(agent):
                 if isinstance(challenge, AndroidAppChallenge):
-                    score = challenge.run(
+                    outcome = challenge.run(
                         ChallengeInstance(solution, agent, sandbox),
                         progress_callback=on_progress,
                     )
                 else:
-                    score = challenge.run(ChallengeInstance(solution, agent, sandbox))
+                    outcome = challenge.run(ChallengeInstance(solution, agent, sandbox))
         finally:
             history_path = getattr(agent, "history_path", None)
             if isinstance(history_path, (str, Path)):
@@ -212,16 +200,21 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
                             shutil.copy2(history_file, session_transcript)
                         _copy_agent_context(agent, history_file, target_transcript)
 
-    limit_exceeded = getattr(score, "limit_exceeded", None)
-    result = AndroidChallengeResult(
-        score=score,
-        runtime=time.perf_counter() - start_time,
-        limit_exceeded=limit_exceeded,
-        session_id=session_id,
-        status="completed",
-        current_attempt=len(getattr(score, "attempts", [])) or 1,
-        reprompts_used=getattr(score, "reprompts_used", 0),
-    )
+    if isinstance(outcome, AndroidChallengeResult):
+        result = outcome
+        result.runtime = time.perf_counter() - start_time
+    else:
+        limit_exceeded = getattr(outcome, "limit_exceeded", None)
+        score_val = getattr(outcome, "score", 0.0)
+        score_obj = score_val if isinstance(score_val, Score) else ChallengeScore(overall=float(score_val))
+        result = AndroidChallengeResult(
+            challenge=challenge.name,
+            score=score_obj,
+            runtime=time.perf_counter() - start_time,
+            limit_exceeded=limit_exceeded,
+            session_id=session_id,
+            status="completed",
+        )
     (solution / "results.json").write_text(result.model_dump_json(indent=2))
     return result
 
@@ -360,11 +353,11 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
             p_res.runtime = time.perf_counter() - start_time
             (solution / "results.json").write_text(p_res.model_dump_json(indent=2))
 
-        score: Score
+        outcome: Any
         try:
             with state.manage_agent(resumed_agent):
                 if isinstance(challenge, AndroidAppChallenge):
-                    score = challenge.run(
+                    outcome = challenge.run(
                         ChallengeInstance(solution, resumed_agent, sandbox),
                         initial_attempts=existing_attempts,
                         initial_response=initial_response,
@@ -372,7 +365,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
                         progress_callback=on_progress,
                     )
                 else:
-                    score = challenge.run(
+                    outcome = challenge.run(
                         ChallengeInstance(solution, resumed_agent, sandbox)
                     )
         finally:
@@ -400,22 +393,29 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
                             shutil.copy2(history_file, session_transcript)
                         _copy_agent_context(resumed_agent, history_file, target_transcript)
 
-    limit_exceeded = getattr(score, "limit_exceeded", None)
     raw_resumed_sid = getattr(resumed_agent, "session_id", None)
     resumed_session_id = (
         str(raw_resumed_sid)
         if isinstance(raw_resumed_sid, (str, Path))
         else None
     )
-    result = AndroidChallengeResult(
-        score=score,
-        runtime=time.perf_counter() - start_time,
-        limit_exceeded=limit_exceeded,
-        session_id=resumed_session_id,
-        status="completed",
-        current_attempt=len(getattr(score, "attempts", [])) or 1,
-        reprompts_used=getattr(score, "reprompts_used", 0),
-    )
+    if isinstance(outcome, AndroidChallengeResult):
+        result = outcome
+        result.runtime = time.perf_counter() - start_time
+        if resumed_session_id and not result.session_id:
+            result.session_id = resumed_session_id
+    else:
+        limit_exceeded = getattr(outcome, "limit_exceeded", None)
+        score_val = getattr(outcome, "score", 0.0)
+        score_obj = score_val if isinstance(score_val, Score) else ChallengeScore(overall=float(score_val))
+        result = AndroidChallengeResult(
+            challenge=challenge.name,
+            score=score_obj,
+            runtime=time.perf_counter() - start_time,
+            limit_exceeded=limit_exceeded,
+            session_id=resumed_session_id,
+            status="completed",
+        )
     (solution / "results.json").write_text(result.model_dump_json(indent=2))
     return result
 
@@ -645,22 +645,22 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
         raise TypeError(f"Challenge {challenge.name} does not support grade_solution")
 
     record = grade_solution((state, solution), response, attempt=1)
+    if record.reprompt is None and record.issue_capabilities:
+        record.reprompt = format_reprompt(record)
 
     definition = getattr(challenge, "definition", None)
     package = getattr(definition, "package", "unknown")
 
-    score = AndroidExploitScore(
-        challenge=challenge.name,
-        package=package,
-        attempts=[record],
-        reprompt=format_reprompt(record) if record.issue_capabilities else None,
-        limit_exceeded=existing_limit,
-    )
+    overall_score, axes = calculate_scores(record)
 
     return AndroidChallengeResult(
-        score=score,
+        challenge=challenge.name,
+        package=package,
+        status="completed",
+        score=ChallengeScore(overall=overall_score, axes=axes),
         runtime=time.perf_counter() - start_time,
         limit_exceeded=existing_limit,
+        attempts=[record],
     )
 
 
@@ -681,14 +681,20 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         num_instances=run.num_instances,
         challenge_runner=grade_existing_challenge,
     )
-    scores: dict[str, Score] = {
-        challenge_name: result.score
+    def _extract_score(res: Any) -> float:
+        s = getattr(res, "score", 0.0)
+        if hasattr(s, "score") and not isinstance(s, (int, float)):
+            return float(s.score)
+        return float(s)
+
+    scores: dict[str, float] = {
+        challenge_name: _extract_score(result)
         for challenge_name, result in challenge_results.items()
     }
     reprompts: dict[str, str] = {
-        challenge_name: result.score.reprompt
+        challenge_name: result.reprompt
         for challenge_name, result in challenge_results.items()
-        if isinstance(result.score, AndroidExploitScore) and result.score.reprompt is not None
+        if getattr(result, "reprompt", None) is not None
     }
     limits_exceeded: dict[str, str] = {
         challenge_name: limit_msg
@@ -698,9 +704,8 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
 
     total_runtime = time.perf_counter() - total_start
     overall = (
-        sum(result.score.score for result in challenge_results.values())
-        / len(challenge_results)
-        if challenge_results
+        sum(scores.values()) / len(scores)
+        if scores
         else 0.0
     )
     grader_result = TestGraderResult(

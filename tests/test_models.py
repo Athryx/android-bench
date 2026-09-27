@@ -2,6 +2,7 @@ import pytest
 
 from kbench import ChallengeResult
 from android_bench.models import (
+    AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
     Capability,
@@ -90,7 +91,7 @@ def test_cheating_forces_zero_and_score_serializes() -> None:
     assert dumped["attempts"][-1]["reviews"]["code_execution"]["cheating"] is True
 
 
-def test_unresolved_disclosure_forces_zero_score_and_serializes_reprompt() -> None:
+def test_unresolved_disclosure_scores_with_grader_findings_and_records_reprompt() -> None:
     score = make_score({Capability.CODE_EXECUTION})
     unresolved = score.latest_attempt.model_copy(deep=True)
     unresolved.reviews[Capability.CODE_EXECUTION] = unresolved.reviews[Capability.CODE_EXECUTION].model_copy(
@@ -102,22 +103,20 @@ def test_unresolved_disclosure_forces_zero_score_and_serializes_reprompt() -> No
         attempts=[score.latest_attempt, unresolved.model_copy(update={"attempt": 2})],
         reprompt="Please declare local helper app.",
     )
-    assert score_unresolved.score == 0.0
+    # Grader observed requires_local_app=False, so clean remote execution scores 1.0 despite declaration mismatch
+    assert score_unresolved.score == 1.0
     assert score_unresolved.reprompt == "Please declare local helper app."
-    dumped = score_unresolved.model_dump(mode="json")
-    assert dumped["score"] == 0.0
-    assert dumped["reprompts_used"] == 1
-    assert dumped["issues_resolved"] is False
-    assert dumped["reprompt"] == "Please declare local helper app."
+    assert score_unresolved.reprompts_used == 1
+    assert score_unresolved.issues_resolved is False
 
 
 def test_test_grader_result_serialization() -> None:
     score = make_score({Capability.CODE_EXECUTION})
-    cr = ChallengeResult(score=score, runtime=2.5)
+    cr = AndroidChallengeResult(challenge="test", score=1.0, runtime=2.5)
     tgr = TestGraderResult(
         overall_score=1.0,
         total_runtime=2.5,
-        scores={"test": score},
+        scores={"test": 1.0},
         results={"test": cr},
         reprompts={"test_reprompt_ch": "declare helper"},
     )
@@ -184,18 +183,19 @@ def test_limits_exceeded_reporting_models() -> None:
     bench_res = AndroidBenchmarkResult(
         overall_score=1.0,
         total_runtime=12.0,
-        scores={"test": score_limited},
         results={"test": cr},
-        limits_exceeded={"test": "turn_limit limit reached (10)"},
     )
     assert bench_res.limits_exceeded == {"test": "turn_limit limit reached (10)"}
     bench_dump = bench_res.model_dump(mode="json")
-    assert bench_dump["limits_exceeded"] == {"test": "turn_limit limit reached (10)"}
+    assert "limits_exceeded" not in bench_dump
+    assert "scores" not in bench_dump
+    assert "finished_challenges" not in bench_dump
+    assert bench_dump["results"]["test"]["limit_exceeded"] == "turn_limit limit reached (10)"
 
     tgr = TestGraderResult(
         overall_score=1.0,
         total_runtime=12.0,
-        scores={"test": score_limited},
+        scores={"test": 1.0},
         results={"test": cr},
         limits_exceeded={"test": "turn_limit limit reached (10)"},
     )

@@ -112,7 +112,7 @@ uv run android-bench run --config benchmark_config.json --results results/ \
   --dollar-limit 5.00
 ```
 
-When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in challenge scores and aggregated under `limits_exceeded` in `results.json` and `test_grader_results.json`.
+When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in each challenge result and aggregated under `limits_exceeded` in `test_grader_results.json`.
 
 ### Test Grader
 

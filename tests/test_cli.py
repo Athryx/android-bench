@@ -1,8 +1,15 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from android_bench.catalog import CHALLENGES
-from android_bench.cli import callback, resume_command, run_command, test_grader_command
+from android_bench.cli import (
+    callback,
+    format_dated_name,
+    resume_command,
+    run_command,
+    test_grader_command,
+)
 
 
 
@@ -402,6 +409,44 @@ def test_resume_cli_with_explicit_config_and_limits(tmp_path: Path) -> None:
     assert challenge.limits is not None
     assert challenge.limits.token_limit == 20000
     assert challenge.limits.dollar_limit == Decimal("4.5")
+
+
+def test_format_dated_name_includes_time_to_minute() -> None:
+    dt = datetime(2026, 9, 27, 13, 46, tzinfo=timezone.utc)
+    formatted = format_dated_name("run1", dt)
+    assert formatted == "run1 (September 27, 2026, 13:46)"
+
+
+def test_run_command_names_run_with_date_and_time_to_minute(tmp_path: Path) -> None:
+    import re
+
+    config = tmp_path / "benchmark.json"
+    config.write_text(
+        """{
+          "name": "time-smoke",
+          "num_instances": 1,
+          "harness": "codex",
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+    benchmark_result = type(
+        "BenchmarkResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: "{}"},
+    )()
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch(
+            "android_bench.cli.run_benchmark", return_value=benchmark_result
+        ) as run_benchmark_mock,
+    ):
+        run_command(config, tmp_path / "results")
+
+    run = run_benchmark_mock.call_args.args[0]
+    # Check that the run name matches: <name> (<Month> <day>, <year>, <HH:MM>)
+    pattern = r"^time-smoke \([A-Z][a-z]+ \d{1,2}, \d{4}, \d{2}:\d{2}\)$"
+    assert re.match(pattern, run.name) is not None
 
 
 

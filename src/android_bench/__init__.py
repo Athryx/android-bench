@@ -1,3 +1,3 @@
-from android_bench.cli import app, main
+from android_bench.cli import app, format_dated_name, main
 
-__all__ = ["app", "main"]
+__all__ = ["app", "format_dated_name", "main"]

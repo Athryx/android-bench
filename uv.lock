@@ -639,7 +639,7 @@ wheels = [
 [[package]]
 name = "cuttle-cli"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_cli&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_cli&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "cuttle-types" },
     { name = "platformdirs" },
@@ -650,7 +650,7 @@ dependencies = [
 [[package]]
 name = "cuttle-types"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_types&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_types&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -1068,7 +1068,7 @@ wheels = [
 [[package]]
 name = "kbench"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkbench&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkbench&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "cuttle-cli" },
     { name = "kexploit-agent" },
@@ -1082,7 +1082,7 @@ dependencies = [
 [[package]]
 name = "kexploit-agent"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_agent&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_agent&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "deepagents" },
     { name = "fastapi" },
@@ -1106,7 +1106,7 @@ dependencies = [
 [[package]]
 name = "kexploit-utils"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_utils&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_utils&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "platformdirs" },
     { name = "pydantic" },
@@ -1117,7 +1117,7 @@ dependencies = [
 [[package]]
 name = "ksandbox"
 version = "0.1.0"
-source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fksandbox&branch=main#5bca38076853032b23a518d8955a099992c9ca0a" }
+source = { git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fksandbox&branch=main#9acc35782e50bbfaf0e27577446579758c230802" }
 dependencies = [
     { name = "docker" },
     { name = "kexploit-utils" },
