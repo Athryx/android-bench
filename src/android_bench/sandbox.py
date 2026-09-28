@@ -16,7 +16,7 @@ APP_INSTALL_TIMEOUT_SECONDS = 120
 
 
 class AndroidBenchSandbox(AdbSandbox):
-    """KBench ADB sandbox that provisions the grader and test apps after forwarding ADB."""
+    """KBench ADB sandbox that installs the grader after forwarding ADB."""
 
     def __init__(
         self,
@@ -128,18 +128,4 @@ class AndroidBenchSandbox(AdbSandbox):
             raise RuntimeError(
                 "failed to install grader app: "
                 + installed_grader.stderr.decode("utf-8", errors="replace")
-            )
-
-        installed_challenge = self.sandbox.exec_sync(
-            [
-                "sh",
-                "-c",
-                f'for apk in /challenge/*.apk; do [ -f "$apk" ] && adb -s "{self.container_adb_host}" install -r -g "$apk"; done',
-            ],
-            timeout_secs=APP_INSTALL_TIMEOUT_SECONDS,
-        )
-        if installed_challenge.exit_code != 0:
-            raise RuntimeError(
-                "failed to install challenge app: "
-                + installed_challenge.stderr.decode("utf-8", errors="replace")
             )

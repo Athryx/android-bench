@@ -110,7 +110,7 @@ def test_start_enables_solver_internet_when_requested() -> None:
     )
 
 
-def test_after_adb_connect_installs_grader_and_challenge_app() -> None:
+def test_after_adb_connect_installs_only_grader() -> None:
     container = MagicMock()
     container.exec_sync.return_value = SimpleNamespace(exit_code=0, stdout=b"", stderr=b"")
     sandbox = AndroidBenchSandbox(
@@ -120,9 +120,6 @@ def test_after_adb_connect_installs_grader_and_challenge_app() -> None:
 
     sandbox._after_adb_connect()
 
-    assert container.exec_sync.call_count == 2
-    first_call_cmd = container.exec_sync.call_args_list[0][0][0]
-    second_call_cmd = container.exec_sync.call_args_list[1][0][0]
-    assert "/opt/android-bench/grader.apk" in first_call_cmd[2]
-    assert "/challenge/*.apk" in second_call_cmd[2]
-
+    container.exec_sync.assert_called_once()
+    command = container.exec_sync.call_args.args[0]
+    assert "/opt/android-bench/grader.apk" in command[2]
