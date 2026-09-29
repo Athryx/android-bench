@@ -37,6 +37,9 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     from android_bench.models import Capability, CapabilityResult
 
     (tmp_path / "file_read").mkdir()
+    grader_dir = tmp_path / "grader"
+    grader_dir.mkdir()
+    (grader_dir / "grader.apk").write_bytes(b"test grader")
     prompts: list[str] = []
     agent_names: list[str] = []
     outputs = [
@@ -86,11 +89,22 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
             }
 
     fake_sandbox = SimpleNamespace(sandbox=object())
+    sandbox_mounts: list[Any] = []
+    sandbox_options: list[dict[str, Any]] = []
+
+    def fake_android_sandbox(*args: Any, **kwargs: Any) -> Any:
+        sandbox_mounts.extend(args[3])
+        sandbox_options.append(kwargs)
+        return nullcontext(fake_sandbox)
+
     monkeypatch.setattr(
         "android_bench.grader.AndroidBenchSandbox",
-        lambda *args, **kwargs: nullcontext(fake_sandbox),
+        fake_android_sandbox,
     )
     monkeypatch.setattr("android_bench.grader.DeterministicGrader", FakeDeterministicGrader)
+    monkeypatch.setattr(
+        "android_bench.grader.grader_apk_path", lambda: grader_dir / "grader.apk"
+    )
     monkeypatch.setattr(
         "android_bench.grader.HarnessType",
         SimpleNamespace(PI_PLUS=SimpleNamespace(create_agent=create_agent)),
@@ -105,6 +119,11 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     )
 
     assert len(agent_names) == len(prompts) == 2
+    assert [(mount.name, mount.writable) for mount in sandbox_mounts] == [
+        ("solution", False),
+        ("grader", False),
+    ]
+    assert sandbox_options[0]["apps_to_install"] == TEST_CHALLENGES[-1].apps_to_install
     assert "file_read" in agent_names[0]
     assert "file_write" in agent_names[1]
     assert "PoC folder: /data/solution/file_read" in prompts[0]

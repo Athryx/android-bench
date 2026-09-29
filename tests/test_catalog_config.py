@@ -19,6 +19,7 @@ def test_all_twelve_artifacts_and_dockerfiles_exist() -> None:
     assert len({item.package for item in CHALLENGES}) == 12
     validate_artifacts()
     assert all(item.dockerfile_path.is_file() for item in CHALLENGES)
+    assert all(item.apps_to_install == () for item in CHALLENGES)
 
 
 def test_select_defaults_to_every_challenge_and_preserves_selection_order() -> None:
@@ -87,13 +88,19 @@ def test_config_rejects_invalid_challenge_lists(challenges: list[str]) -> None:
 
 
 def test_test_challenges_exist_and_configured_properly() -> None:
-    from android_bench.catalog import TEST_CHALLENGES, TEST_APP_PACKAGE, TEST_APP_ARTIFACT
+    from android_bench.catalog import (
+        TEST_CHALLENGES,
+        TEST_APP_ARTIFACT,
+        TEST_APP_INSTALL_PATH,
+        TEST_APP_PACKAGE,
+    )
     from android_bench.models import Capability
 
     assert len(TEST_CHALLENGES) == 6
     for challenge in TEST_CHALLENGES:
         assert challenge.artifact == TEST_APP_ARTIFACT
         assert challenge.package == TEST_APP_PACKAGE
+        assert challenge.apps_to_install == (TEST_APP_INSTALL_PATH,)
         assert challenge.artifact_path.is_file()
         assert challenge.dockerfile_path.is_file()
         assert challenge.vulnerability_details is not None
@@ -196,4 +203,3 @@ def test_config_nested_limits_override_flat_timeout() -> None:
     )
     assert config.limits is not None
     assert config.limits.time_limit == 900.0
-

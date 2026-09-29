@@ -68,7 +68,9 @@ def test_stop_reraises_when_instance_is_still_visible() -> None:
         sandbox.stop()
 
 
-def test_start_enables_solver_internet_when_requested() -> None:
+def test_start_enables_solver_internet_when_requested(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     container = MagicMock()
     container.running = True
     container.exec_sync.return_value = SimpleNamespace(
@@ -94,7 +96,8 @@ def test_start_enables_solver_internet_when_requested() -> None:
         internet_enabled=True,
     )
 
-    sandbox.start()
+    with caplog.at_level("INFO", logger="android_bench.sandbox"):
+        sandbox.start()
 
     provider.create.assert_called_once_with(
         "android-bench:test",
@@ -108,18 +111,76 @@ def test_start_enables_solver_internet_when_requested() -> None:
         load_apps=True,
         unmanaged=True,
     )
+    assert all(
+        "grader.apk" not in " ".join(call.args[0])
+        for call in container.exec_sync.call_args_list
+    )
+    messages = [record.message for record in caplog.records]
+    assert messages == [
+        "starting Cuttlefish (template=challenge6)",
+        "Cuttlefish ready (instance=instance-1, adb=adb.internal:6520)",
+        "starting container (image=android-bench:test)",
+        "container ready (adb=cuttlefish:6000)",
+    ]
 
 
-def test_after_adb_connect_installs_only_grader() -> None:
+def test_start_installs_only_catalog_requested_apps(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     container = MagicMock()
-    container.exec_sync.return_value = SimpleNamespace(exit_code=0, stdout=b"", stderr=b"")
+    container.running = True
+    container.exec_sync.return_value = SimpleNamespace(
+        exit_code=0, stdout=b"Success\n", stderr=b""
+    )
+    provider = MagicMock()
+    provider.create.return_value = container
+    cuttle_client = MagicMock()
+    cuttle_client.start.return_value = SimpleNamespace(
+        adb_target="adb.internal:6520",
+        instance=SimpleNamespace(instance_id="instance-1"),
+    )
+    state = MagicMock(spec=GlobalRunState)
+    state.sandbox_provider = provider
+    state.cuttle_client = cuttle_client
     sandbox = AndroidBenchSandbox(
-        MagicMock(spec=GlobalRunState), "android-bench:test", "challenge6", []
+        state,
+        "android-bench:test",
+        "challenge6",
+        [],
+        name="test_all",
+        apps_to_install=("/challenge/test_app.apk",),
+    )
+
+    with caplog.at_level("INFO", logger="android_bench.sandbox"):
+        sandbox.start()
+
+    container.exec_sync.assert_any_call(
+        [
+            "adb", "-s", "cuttlefish:6000", "install", "-r", "-g",
+            "/challenge/test_app.apk",
+        ],
+        timeout_secs=120,
+    )
+    assert "Challenge 'test_all': app installed on Cuttlefish (apk=/challenge/test_app.apk)" in [
+        record.message for record in caplog.records
+    ]
+
+
+def test_requested_app_installation_failure_is_reported() -> None:
+    sandbox = AndroidBenchSandbox(
+        MagicMock(spec=GlobalRunState),
+        "android-bench:test",
+        "challenge6",
+        [],
+        apps_to_install=("/challenge/test_app.apk",),
+    )
+    container = MagicMock()
+    container.exec_sync.return_value = SimpleNamespace(
+        exit_code=1,
+        stdout=b"",
+        stderr=b"INSTALL_FAILED_INVALID_APK",
     )
     sandbox.sandbox = container
 
-    sandbox._after_adb_connect()
-
-    container.exec_sync.assert_called_once()
-    command = container.exec_sync.call_args.args[0]
-    assert "/opt/android-bench/grader.apk" in command[2]
+    with pytest.raises(RuntimeError, match="INSTALL_FAILED_INVALID_APK"):
+        sandbox._after_adb_connect()

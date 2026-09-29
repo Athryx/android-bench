@@ -273,6 +273,7 @@ class AndroidChallengeResult(ChallengeResult):
     runtime: float = 0.0
     session_id: str | None = None
     limit_exceeded: str | None = None
+    error: str | None = None
     attempts: list[AttemptRecord] = Field(default_factory=list)
 
     @model_validator(mode="before")

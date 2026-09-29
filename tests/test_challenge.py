@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from kbench import ChallengeInstance
 from kexploit_agent import HarnessType, Model, ModelConfig
 
@@ -47,7 +48,9 @@ def reviews_for(
     }
 
 
-def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path) -> None:
+def test_mismatch_reprompts_and_regrades_fresh(
+    monkeypatch: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     calls: list[int] = []
 
     def fake_grade_attempt(
@@ -77,7 +80,8 @@ def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path)
         HarnessType.CODEX,
         max_reprompts=2,
     )
-    score = challenge.run(instance)
+    with caplog.at_level("INFO", logger="android_bench.challenge"):
+        score = challenge.run(instance)
 
     assert calls == [1, 2]
     assert len(agent.prompts) == 2
@@ -86,6 +90,14 @@ def test_mismatch_reprompts_and_regrades_fresh(monkeypatch: Any, tmp_path: Path)
     assert score.issues_resolved
     assert (tmp_path / "grading" / "attempt-1.toml").is_file()
     assert (tmp_path / "grading" / "attempt-2.toml").is_file()
+    messages = [record.message for record in caplog.records]
+    assert messages.index(
+        f"Challenge '{challenge.name}': initial agent run started (attempt=1)"
+    ) < messages.index(
+        f"Challenge '{challenge.name}': grading attempt 1 started"
+    )
+    assert any("reprompt agent run started (attempt=2)" in message for message in messages)
+    assert any("grading attempt 2 completed" in message for message in messages)
 
 
 def test_resume_after_clean_grade_does_not_reprompt(tmp_path: Path) -> None:
@@ -172,7 +184,7 @@ def test_internet_enabled_property_updates_prompt() -> None:
     assert "potential vulnerabilities" in prompt
 
 
-def test_prepare_solution_creates_templates(tmp_path: Path) -> None:
+def test_prepare_solution_creates_executable_templates_without_grader_details(tmp_path: Path) -> None:
     challenge = AndroidAppChallenge(
         CHALLENGES[0],
         ModelConfig(model=Model.GPT_6_ASTRA),
@@ -180,16 +192,18 @@ def test_prepare_solution_creates_templates(tmp_path: Path) -> None:
     )
     challenge.prepare_solution(tmp_path)
     for capability in Capability:
-        poc_file = tmp_path / capability.value / "poc"
-        assert poc_file.is_file()
-        assert poc_file.stat().st_mode & 0o111 != 0
-        content = poc_file.read_text()
-        assert CHALLENGES[0].package in content
-        assert "ADB_HOST=" in content
-        assert "#!/bin/bash" in content
+        folder = tmp_path / capability.value
+        assert folder.is_dir()
+        poc = folder / "poc"
+        assert poc.stat().st_mode & 0o111
+        content = poc.read_text()
+        assert content.startswith("#!/bin/bash")
+        assert "# Arguments:" in content
+        assert "$1 - ADB host / serial" in content
+        assert "grader" not in content.lower()
 
 
-def test_enabled_capabilities_filters_graders_and_templates(tmp_path: Path) -> None:
+def test_enabled_capabilities_filters_capability_folders(tmp_path: Path) -> None:
     challenge = AndroidAppChallenge(
         CHALLENGES[0],
         ModelConfig(model=Model.GPT_6_ASTRA),
@@ -197,6 +211,8 @@ def test_enabled_capabilities_filters_graders_and_templates(tmp_path: Path) -> N
         enabled_capabilities=(Capability.CODE_EXECUTION, Capability.FILE_WRITE),
     )
     challenge.prepare_solution(tmp_path)
+    assert (tmp_path / "code_execution").is_dir()
+    assert (tmp_path / "file_write").is_dir()
     assert (tmp_path / "code_execution" / "poc").is_file()
     assert (tmp_path / "file_write" / "poc").is_file()
     assert not (tmp_path / "file_read").exists()
@@ -225,6 +241,7 @@ def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_
 
     exec_sol = tmp_path / "exec"
     ch_exec.prepare_solution(exec_sol)
+    assert (exec_sol / "code_execution").is_dir()
     assert (exec_sol / "code_execution" / "poc").is_file()
     assert not (exec_sol / "file_write").exists()
     assert not (exec_sol / "file_read").exists()
@@ -233,7 +250,7 @@ def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_
     assert "Target Vulnerabilities & Exploitation Interface" in prompt_exec
     assert "8888" in prompt_exec
     assert "EXEC <command>" in prompt_exec
-    assert "1. code_execution:" in prompt_exec
+    assert "1. code_execution (/data/solution/code_execution/poc):" in prompt_exec
     assert "file_write (/data/solution/file_write/poc)" not in prompt_exec
 
     # Test test_all: all 5 graders enabled
@@ -246,6 +263,7 @@ def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_
     all_sol = tmp_path / "all"
     ch_all.prepare_solution(all_sol)
     for cap in Capability:
+        assert (all_sol / cap.value).is_dir()
         assert (all_sol / cap.value / "poc").is_file()
 
     prompt_all = ch_all.system_prompt("cuttlefish:6000")

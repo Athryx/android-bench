@@ -8,12 +8,14 @@ from kbench import BenchmarkRun, ChallengeResult, GlobalRunState, Score
 from kexploit_agent import Model, ModelConfig
 
 from android_bench.models import (
+    AndroidChallengeResult,
     AndroidExploitScore,
     AttemptRecord,
     Capability,
     CapabilityReview,
     CapabilityResult,
     ChallengeScore,
+    FloatScore,
 )
 from android_bench.runner import (
     extract_final_response,
@@ -81,7 +83,36 @@ def test_run_challenge_passes_internet_setting_to_sandbox(tmp_path: Path) -> Non
         name="internet-test",
         internet_enabled=True,
         extra_hosts={"api.openai.com": "127.0.0.1"},
+        apps_to_install=(),
     )
+
+
+def test_run_challenge_passes_test_app_installation_to_sandbox(tmp_path: Path) -> None:
+    from android_bench.catalog import TEST_APP_INSTALL_PATH, TEST_CHALLENGES
+    from android_bench.challenge import AndroidAppChallenge
+
+    state = MagicMock(spec=GlobalRunState)
+    state.solutions_folder = tmp_path
+    state.run_group = MagicMock()
+    challenge = MagicMock(spec=AndroidAppChallenge)
+    challenge.definition = TEST_CHALLENGES[-1]
+    challenge.name = "test_all"
+    challenge.tag = "android-bench-test-all:latest"
+    challenge.cuttlefish_template = "challenge6"
+    challenge.internet_enabled = False
+    challenge.model_config = ModelConfig(model=Model.GPT_6_ASTRA)
+    challenge.system_prompt.return_value = "test prompt"
+    challenge.run.return_value = _Score()
+
+    sandbox = MagicMock()
+    sandbox.__enter__.return_value = sandbox
+    sandbox.sandbox = MagicMock()
+    sandbox.container_adb_host = "cuttlefish:6000"
+
+    with patch("android_bench.runner.AndroidBenchSandbox", return_value=sandbox) as cls:
+        run_challenge(state, challenge)
+
+    assert cls.call_args.kwargs["apps_to_install"] == (TEST_APP_INSTALL_PATH,)
 
 
 def test_run_challenge_copies_agent_history(tmp_path: Path) -> None:
@@ -710,6 +741,75 @@ def test_run_benchmark_aggregates_limits_exceeded(tmp_path: Path) -> None:
     assert "scores" not in saved_data
     assert "finished_challenges" not in saved_data
     assert saved_data["results"]["ch1"]["limit_exceeded"] == "turn_limit limit reached (5)"
+
+
+def test_run_benchmark_preserves_failed_workers_last_graded_attempt(
+    tmp_path: Path,
+) -> None:
+    failed = MagicMock()
+    failed.name = "failed"
+    ungraded = MagicMock()
+    ungraded.name = "ungraded"
+    succeeded = MagicMock()
+    succeeded.name = "succeeded"
+    run = MagicMock(spec=BenchmarkRun)
+    run.name = "mixed_run"
+    run.output_folder = tmp_path
+    run.challenges = [failed, ungraded, succeeded]
+    run.num_instances = 3
+
+    attempt = AttemptRecord(
+        attempt=1,
+        response="exploit ready",
+        capabilities={
+            Capability.CODE_EXECUTION: CapabilityResult(passed=True, detail="ok")
+        },
+        reviews={
+            Capability.CODE_EXECUTION: review(
+                requires_local_app=False,
+                requires_user_interaction=False,
+                cheating=False,
+                reason="verified",
+                declared_local_app=False,
+                declared_user_interaction=False,
+            )
+        },
+    )
+
+    def fake_run_challenge(_state: GlobalRunState, challenge: MagicMock) -> AndroidChallengeResult:
+        if challenge.name == "failed":
+            grading_dir = tmp_path / "failed" / "grading"
+            grading_dir.mkdir(parents=True)
+            (grading_dir / "attempt-1.toml").write_text(attempt.model_dump_toml())
+            raise RuntimeError("reprompt rejected")
+        if challenge.name == "ungraded":
+            raise RuntimeError("setup failed")
+        return AndroidChallengeResult(
+            challenge="succeeded", score=FloatScore(0.0), runtime=1.0
+        )
+
+    with (
+        patch("android_bench.runner.DockerSandboxProvider.get"),
+        patch("android_bench.runner.CuttleClient.from_config"),
+        patch("android_bench.runner.run_challenge", side_effect=fake_run_challenge),
+    ):
+        result = run_benchmark(run)
+
+    failed_result = result.results["failed"]
+    assert isinstance(failed_result, AndroidChallengeResult)
+    assert failed_result.status == "failed"
+    assert failed_result.score == 1.0
+    assert failed_result.error == "RuntimeError: reprompt rejected"
+    assert len(failed_result.attempts) == 1
+    ungraded_result = result.results["ungraded"]
+    assert isinstance(ungraded_result, AndroidChallengeResult)
+    assert ungraded_result.status == "failed"
+    assert ungraded_result.score == 0.0
+    assert ungraded_result.attempts == []
+    assert result.results["succeeded"].score == 0.0
+    assert result.score == pytest.approx(1 / 3)
+    saved = tomllib.loads((tmp_path / "results.toml").read_text())
+    assert set(saved["results"]) == {"failed", "ungraded", "succeeded"}
 
 
 def test_grade_existing_challenge_preserves_limit_exceeded(tmp_path: Path) -> None:

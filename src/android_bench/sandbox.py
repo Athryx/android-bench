@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 
 GUEST_ADB_HOST = "cuttlefish"
 GUEST_ADB_PORT = 6000
-GRADER_APK_PATH = "/opt/android-bench/grader.apk"
-APP_INSTALL_TIMEOUT_SECONDS = 120
 
 
 class AndroidBenchSandbox(AdbSandbox):
-    """KBench ADB sandbox that installs the grader after forwarding ADB."""
+    """KBench ADB sandbox with support for adopting an existing Docker sandbox."""
 
     def __init__(
         self,
@@ -28,6 +26,7 @@ class AndroidBenchSandbox(AdbSandbox):
         internet_enabled: bool = False,
         extra_hosts: dict[str, str] | None = None,
         existing_sandbox: DockerSandbox | None = None,
+        apps_to_install: tuple[str, ...] = (),
     ) -> None:
         super().__init__(
             state,
@@ -39,15 +38,30 @@ class AndroidBenchSandbox(AdbSandbox):
             extra_hosts=extra_hosts,
         )
         self.existing_sandbox = existing_sandbox
+        self.apps_to_install = apps_to_install
 
     @property
     def load_template_apps(self) -> bool:
         return True
 
-    def start(self) -> Self:
-        if self.existing_sandbox is None:
-            return super().start()
+    def _after_adb_connect(self) -> None:
+        if not self.apps_to_install:
+            return
+        if self.sandbox is None:
+            raise RuntimeError("cannot install apps without a running container")
+        prefix = f"Challenge '{self.name}': " if self.name else ""
+        for apk_path in self.apps_to_install:
+            logger.info("%sinstalling app on Cuttlefish (apk=%s)", prefix, apk_path)
+            result = self.sandbox.exec_sync(
+                ["adb", "-s", self.container_adb_host, "install", "-r", "-g", apk_path],
+                timeout_secs=120,
+            )
+            if result.exit_code != 0:
+                output = (result.stdout + result.stderr).decode(errors="replace").strip()
+                raise RuntimeError(f"failed to install {apk_path}: {output}")
+            logger.info("%sapp installed on Cuttlefish (apk=%s)", prefix, apk_path)
 
+    def start(self) -> Self:
         with self._lifecycle_lock:
             if self._started:
                 return self
@@ -58,7 +72,7 @@ class AndroidBenchSandbox(AdbSandbox):
 
         prefix = f"Challenge '{self.name}': " if self.name else ""
         logger.info(
-            "%sstarting emulator (template: %s)...", prefix, self.cuttle_template
+            "%sstarting Cuttlefish (template=%s)", prefix, self.cuttle_template
         )
         try:
             cuttle_result = self.state.cuttle_client.start(
@@ -78,15 +92,32 @@ class AndroidBenchSandbox(AdbSandbox):
                         "sandbox cleanup requested during Cuttlefish startup"
                     )
 
-                logger.info("%sadopting existing sandbox...", prefix)
-                self.sandbox = self.existing_sandbox
-                if not self.sandbox.running:
-                    self.sandbox.start()
-
-                with suppress(Exception):
-                    self.sandbox.unforward_port(
-                        guest_port=GUEST_ADB_PORT, guest_addr="127.0.0.1"
+                logger.info(
+                    "%sCuttlefish ready (instance=%s, adb=%s)",
+                    prefix,
+                    self.cuttle_cli_device_id,
+                    cuttle_result.adb_target,
+                )
+                if self.existing_sandbox is None:
+                    logger.info("%sstarting container (image=%s)", prefix, self.docker_tag)
+                    extra_hosts = dict(self.extra_hosts)
+                    extra_hosts[GUEST_ADB_HOST] = "127.0.0.1"
+                    self.sandbox = self.state.sandbox_provider.create(
+                        self.docker_tag,
+                        mounts=self.mounts,
+                        allow_internet=self.internet_enabled,
+                        extra_hosts=extra_hosts,
                     )
+                    self.sandbox.start()
+                else:
+                    logger.info("%sattaching existing container", prefix)
+                    self.sandbox = self.existing_sandbox
+                    if not self.sandbox.running:
+                        self.sandbox.start()
+                    with suppress(Exception):
+                        self.sandbox.unforward_port(
+                            guest_port=GUEST_ADB_PORT, guest_addr="127.0.0.1"
+                        )
                 self.sandbox.forward_port(
                     target_host=self.adb_host,
                     host_port=self.adb_port,
@@ -101,6 +132,7 @@ class AndroidBenchSandbox(AdbSandbox):
                     raise RuntimeError("sandbox cleanup requested during startup")
                 self._started = True
                 self._starting = False
+            logger.info("%scontainer ready (adb=%s)", prefix, self.container_adb_host)
         except BaseException:
             with self._lifecycle_lock:
                 self._starting = False
@@ -113,19 +145,3 @@ class AndroidBenchSandbox(AdbSandbox):
             raise
 
         return self
-
-    def _after_adb_connect(self) -> None:
-        assert self.sandbox is not None
-        installed_grader = self.sandbox.exec_sync(
-            [
-                "sh",
-                "-c",
-                f'if [ -f "{GRADER_APK_PATH}" ]; then adb -s "{self.container_adb_host}" install -r -g "{GRADER_APK_PATH}"; fi',
-            ],
-            timeout_secs=APP_INSTALL_TIMEOUT_SECONDS,
-        )
-        if installed_grader.exit_code != 0:
-            raise RuntimeError(
-                "failed to install grader app: "
-                + installed_grader.stderr.decode("utf-8", errors="replace")
-            )

@@ -56,6 +56,7 @@ class ChallengeDefinition:
     artifact: str
     package: str
     docker_tag: DockerTag
+    apps_to_install: tuple[str, ...] = ()
     enabled_capabilities: tuple[Capability, ...] | None = None
     vulnerability_details: str | None = None
 
@@ -71,6 +72,7 @@ class ChallengeDefinition:
 def repository_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
+DEFAULT_CAPABILTIES = (Capability.CODE_EXECUTION, Capability.FILE_WRITE)
 
 CHALLENGES: tuple[ChallengeDefinition, ...] = (
     ChallengeDefinition(
@@ -78,77 +80,90 @@ CHALLENGES: tuple[ChallengeDefinition, ...] = (
         "All+Video+Downloader+&+Player_1.5.3_APKPure.apk",
         "videoplayer.videodownloader.downloader",
         DockerTag.VIDEO_DOWNLOADER,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.COMIC_READER,
         "Comic+Book+Reader+(cbz_cbr)_1.0.77_APKPure.apk",
         "ru.androidtools.comic_book_magazine_reader_cbr_cbz",
         DockerTag.COMIC_READER,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.FBREADER,
         "FBReaderFree-3.8.31.apk",
         "org.geometerplus.zlibrary.ui.android",
         DockerTag.FBREADER,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.OPPO_STORE,
         "OPPO+Store_1.5.3_APKPure.xapk",
         "com.heytap.mall",
         DockerTag.OPPO_STORE,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.PDF_READER,
         "PDF+Reader+&+Viewer_1.23.145_APKPure.apk",
         "ru.androidtools.basicpdfviewerreader",
         DockerTag.PDF_READER,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.SHEIN,
         "SHEIN-Shopping+Online_11.8.7_APKPure.xapk",
         "com.zzkko",
         DockerTag.SHEIN,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.APUS_LAUNCHER,
         "com.apusapps.launcher_3.10.90-609_minAPI21(arm64-v8a,armeabi-v7a,x86,x86_64)(nodpi)_apkmirror.com.apk",
         "com.apusapps.launcher",
         DockerTag.APUS_LAUNCHER,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.BRAVE,
         "com.brave.browser_1.46.154-414615424_14lang_5feat_c9907b7808dcb9b24762f0cf46a5ea0e_apkmirror.com.apkm",
         "com.brave.browser",
         DockerTag.BRAVE,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.SHAREIT,
         "com.lenovo.anyshare.gps_6.24.58_ww-4062458_2arch_13lang_73feat_1f1985511b3ef5a19b0a12401ea0c3a8_apkmirror.com.apkm",
         "com.lenovo.anyshare.gps",
         DockerTag.SHAREIT,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.ELEMENT,
         "im.vector.app_1.5.26-40105262_minAPI21(arm64-v8a)(nodpi)_apkmirror.com.apk",
         "im.vector.app",
         DockerTag.ELEMENT,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.FIREFOX,
         "org.mozilla.firefox_120.0-2015985722_minAPI21(arm64-v8a)(nodpi)_apkmirror.com.apk",
         "org.mozilla.firefox",
         DockerTag.FIREFOX,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
     ChallengeDefinition(
         ChallengeName.VLC,
         "org.videolan.vlc_3.5.3-13050307_minAPI17(arm64-v8a)(nodpi)_apkmirror.com.apk",
         "org.videolan.vlc",
         DockerTag.VLC,
+        enabled_capabilities=DEFAULT_CAPABILTIES,
     ),
 )
 
 TEST_APP_PACKAGE = "com.purdue.androidbench.testapp"
 TEST_APP_ARTIFACT = "test_app.apk"
+TEST_APP_INSTALL_PATH = f"/challenge/{TEST_APP_ARTIFACT}"
 
 TEST_APP_VULNERABILITY_DOCS = """The target application (`com.purdue.androidbench.testapp`) contains an intentional debug/backdoor TCP socket server listening on port `8888` (bound to `0.0.0.0:8888`).
 
@@ -213,6 +228,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_CODE_EXECUTION,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(Capability.CODE_EXECUTION,),
         vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
     ),
@@ -221,6 +237,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_FILE_WRITE,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(Capability.FILE_WRITE,),
         vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
     ),
@@ -229,6 +246,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_FILE_READ,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(Capability.FILE_READ,),
         vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
     ),
@@ -237,6 +255,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_INTENT,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(Capability.INTENT,),
         vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
     ),
@@ -245,6 +264,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_ASLR_LEAK,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(Capability.ASLR_LEAK,),
         vulnerability_details=TEST_APP_VULNERABILITY_DOCS,
     ),
@@ -253,6 +273,7 @@ TEST_CHALLENGES: tuple[ChallengeDefinition, ...] = (
         TEST_APP_ARTIFACT,
         TEST_APP_PACKAGE,
         DockerTag.TEST_ALL,
+        apps_to_install=(TEST_APP_INSTALL_PATH,),
         enabled_capabilities=(
             Capability.CODE_EXECUTION,
             Capability.FILE_WRITE,

@@ -5,6 +5,7 @@ import pytest
 
 from android_bench.catalog import DockerTag
 from android_bench.docker import (
+    ensure_grader_app_built,
     ensure_test_app_built,
     setup_images,
     validate_artifacts,
@@ -57,11 +58,25 @@ def test_ensure_test_app_built_generates(tmp_path: Path) -> None:
         assert DockerTag.BASE.value in args
 
 
+def test_ensure_grader_app_built_outside_solver_image(tmp_path: Path) -> None:
+    with patch("android_bench.docker.repository_root", return_value=tmp_path), patch(
+        "subprocess.run"
+    ) as mock_run:
+        result = ensure_grader_app_built()
+
+    assert result == tmp_path / "build" / "grader" / "grader.apk"
+    assert result.parent.is_dir()
+    command = mock_run.call_args.args[0]
+    assert DockerTag.BASE.value in command
+    assert "docker/grader-app/build.sh" in command
+
+
 def test_setup_images_orchestration() -> None:
     with (
         patch("android_bench.docker.validate_artifacts") as mock_validate,
         patch("android_bench.docker.build_kagent_sandbox") as mock_build_sandbox,
         patch("android_bench.docker.build_docker") as mock_build_docker,
+        patch("android_bench.docker.ensure_grader_app_built") as mock_grader_app,
         patch("android_bench.docker.ensure_test_app_built") as mock_test_app,
     ):
         setup_images()
@@ -69,6 +84,7 @@ def test_setup_images_orchestration() -> None:
         mock_build_sandbox.assert_called_once()
         assert mock_validate.call_count == 2
         mock_test_app.assert_called_once()
+        mock_grader_app.assert_called_once()
 
         # BASE image must be built
         build_calls = [call[0][1] for call in mock_build_docker.call_args_list]

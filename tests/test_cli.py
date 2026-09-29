@@ -14,10 +14,14 @@ from android_bench.cli import (
 
 
 def test_callback_loads_dotenv() -> None:
-    with patch("android_bench.cli.load_dotenv") as load_dotenv:
+    with (
+        patch("android_bench.cli.load_dotenv") as load_dotenv,
+        patch("android_bench.cli.configure_logging") as configure_logging,
+    ):
         callback()
 
     load_dotenv.assert_called_once_with()
+    configure_logging.assert_called_once_with(default_level="INFO")
 
 
 def test_run_applies_global_internet_setting_to_every_challenge(
@@ -448,7 +452,6 @@ def test_run_command_names_run_with_date_and_time_to_minute(tmp_path: Path) -> N
     # Check that the run name matches: <name> (<Month> <day>, <year>, <HH:MM>)
     pattern = r"^time-smoke \([A-Z][a-z]+ \d{1,2}, \d{4}, \d{2}:\d{2}\)$"
     assert re.match(pattern, run.name) is not None
-
 
 
 

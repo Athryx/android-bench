@@ -1,7 +1,7 @@
 name = "run1"
 num_instances = 5
 challenges = [
-    "test_code_execution",
+    "test_all",
 ]
 harness = "pi_plus"
 internet_enabled = true

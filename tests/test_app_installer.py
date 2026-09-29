@@ -61,6 +61,7 @@ def test_installation_candidates_adds_missing_challenge_artifact(
     challenge_dir.mkdir()
     bulk_app = app_dir / "bulk.apk"
     bulk_app.write_bytes(b"bulk")
+    (app_dir / "grader.apk").write_bytes(b"grader")
     challenge_copy = challenge_dir / "bulk.apk"
     challenge_copy.write_bytes(b"analysis")
     challenge_target = challenge_dir / "test_app.apk"

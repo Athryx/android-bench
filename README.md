@@ -131,13 +131,15 @@ When `--test-grader` is specified:
 - If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.
 - The evaluation is saved to `<results>/test_grader_results.toml` without modifying `results.toml`.
 
-The benchmark boots `challenge6` with template app loading enabled, so all 12 target apps are pre-installed
-by Cuttlefish. The sandbox only provisions the benchmark infrastructure apps (the grader app and any challenge
-test app) after connecting ADB.
+The benchmark boots `challenge6` with template app loading enabled, so the target apps are pre-installed
+by Cuttlefish. Solver containers and their emulators do not contain the grader app. During grading,
+the grader APK is mounted into the grading container and installed on its separate emulator.
+The six test challenges are an exception: `test_app.apk` is absent from the `challenge6` template,
+so the benchmark installs it from the test challenge image on both solver and grader emulators.
 
 ## PoC contract
 
-The solution folder `/data/solution/` contains per-capability directories (`code_execution`, `file_write`, `file_read`, `intent`, `aslr_leak`), each initialized with an executable `poc` template script. The grader invokes each enabled capability as:
+The solution folder `/data/solution/` contains executable `poc` templates for each enabled capability (`code_execution`, `file_write`, `file_read`, `intent`, `aslr_leak`). The solver implements these scripts using the argument format documented in each template. The grader invokes each enabled capability as:
 
 ```sh
 /data/solution/<grader_name>/poc <adb_host> <args...>

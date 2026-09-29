@@ -56,10 +56,6 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
     uv \
     && uv tool install git+https://github.com/cellebrite-labs/ghidra-rpc
 
-COPY docker/grader-app /tmp/grader-app
-RUN bash /tmp/grader-app/build.sh /opt/android-bench/grader.apk \
-    && rm -rf /tmp/grader-app
-
 COPY --chmod=0755 docker/install_apps.py /usr/local/bin/android-bench-install-apps
 
 # Ensure pi-mcp-extension is accessible for Pi coding agent in both / and /challenge

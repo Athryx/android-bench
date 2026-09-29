@@ -79,13 +79,21 @@ def install_archive(serial: str, archive_path: Path, primary_abi: str) -> None:
 def installation_candidates(
     app_dir: Path = APP_DIR, challenge_dir: Path = CHALLENGE_DIR
 ) -> list[Path]:
-    """Return grader apps plus any challenge artifact (e.g. test_app.apk)."""
+    """Return any challenge artifacts available for installation."""
     candidates = {}
     if app_dir.is_dir():
         for path in sorted(app_dir.iterdir()):
-            if path.is_file() and path.suffix.lower() in APP_SUFFIXES:
+            if (
+                path.is_file()
+                and path.name != "grader.apk"
+                and path.suffix.lower() in APP_SUFFIXES
+            ):
                 candidates[path.name] = path
-    elif app_dir.is_file() and app_dir.suffix.lower() in APP_SUFFIXES:
+    elif (
+        app_dir.is_file()
+        and app_dir.name != "grader.apk"
+        and app_dir.suffix.lower() in APP_SUFFIXES
+    ):
         candidates[app_dir.name] = app_dir
 
     if challenge_dir.is_dir():
@@ -112,7 +120,7 @@ def main() -> None:
             run_adb(serial, "install", "-t", "-r", str(app_path))
         elif suffix in {".xapk", ".apkm"}:
             install_archive(serial, app_path, primary_abi)
-        if app_path.parent == APP_DIR and app_path.name != "grader.apk":
+        if app_path.parent == APP_DIR:
             app_path.unlink()
 
 

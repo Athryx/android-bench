@@ -9,6 +9,7 @@ import typer
 from dotenv import load_dotenv
 from kbench import BenchmarkRun, Challenge
 from kexploit_agent import Limits
+from ksandbox.logging_utils import configure_logging
 
 from android_bench.catalog import select_challenges
 from android_bench.challenge import AndroidAppChallenge
@@ -30,6 +31,7 @@ app = typer.Typer(
 def callback() -> None:
     """Load local environment variables before running a command."""
     load_dotenv()
+    configure_logging(default_level="INFO")
 
 
 def _unwrap(val: Any) -> Any:
