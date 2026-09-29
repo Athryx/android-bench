@@ -74,8 +74,6 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
         return FakeAgent()
 
     class FakeDeterministicGrader:
-        attempted = {Capability.FILE_READ}
-
         def __init__(self, *args: Any) -> None:
             pass
 
@@ -134,7 +132,6 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     assert graded.reviews[Capability.FILE_READ].attempted
     assert not graded.reviews[Capability.FILE_WRITE].attempted
     assert "missing" in graded.reviews[Capability.FILE_WRITE].reasoning
-    assert graded.attempted_pocs == {Capability.FILE_READ}
 
 
 def test_graders_place_valid_executable_templates(tmp_path: Path) -> None:
@@ -207,42 +204,6 @@ def test_deterministic_grader_reports_missing_target_after_adb_root_disconnect()
         match="target package 'com.purdue.androidbench.testapp' is not installed",
     ):
         grader.prepare()
-
-
-def test_is_poc_attempted() -> None:
-    from unittest.mock import MagicMock
-    from android_bench.catalog import TEST_CHALLENGES
-    from android_bench.grader import DeterministicGrader, GRADERS
-    from android_bench.models import Capability
-
-    sandbox = MagicMock()
-    docker_box = MagicMock()
-    sandbox.sandbox = docker_box
-    sandbox.container_adb_host = "cuttlefish:6000"
-
-    code_grader = GRADERS[Capability.CODE_EXECUTION]
-    template = code_grader.template_content("com.purdue.androidbench.testapp")
-
-    # Case 1: missing executable
-    docker_box.exec_sync.side_effect = [
-        SimpleNamespace(exit_code=1, stdout=b"", stderr=b"")  # test -x fails
-    ]
-    grader = DeterministicGrader(sandbox, TEST_CHALLENGES[-1])
-    assert grader.is_poc_attempted(code_grader) is False
-
-    # Case 2: untouched template
-    docker_box.exec_sync.side_effect = [
-        SimpleNamespace(exit_code=0, stdout=b"", stderr=b""),  # test -x succeeds
-        SimpleNamespace(exit_code=0, stdout=template.encode(), stderr=b""),  # cat template
-    ]
-    assert grader.is_poc_attempted(code_grader) is False
-
-    # Case 3: modified template
-    docker_box.exec_sync.side_effect = [
-        SimpleNamespace(exit_code=0, stdout=b"", stderr=b""),  # test -x succeeds
-        SimpleNamespace(exit_code=0, stdout=b"#!/bin/bash\necho pwned\n", stderr=b""),  # modified
-    ]
-    assert grader.is_poc_attempted(code_grader) is True
 
 
 def test_deterministic_grader_captures_logcat_on_failure() -> None:
@@ -330,13 +291,12 @@ def test_unattempted_capability_does_not_trigger_reprompt() -> None:
     from android_bench.grader import format_reprompt
     from android_bench.models import AttemptRecord, Capability, CapabilityReview, CapabilityResult
 
-    capabilities = {Capability.INTENT: CapabilityResult(passed=False, detail="template missing")}
+    capabilities = {Capability.INTENT: CapabilityResult(passed=False, detail="PoC failed")}
     reviews = {Capability.INTENT: CapabilityReview(attempted=False, reasoning="No claim")}
     attempt = AttemptRecord(attempt=1, response="", capabilities=capabilities, reviews=reviews)
     assert not attempt.issue_capabilities
+    assert not attempt.poc_failed(Capability.INTENT)
     assert "### `intent`\nCapability not attempted or not claimed." in format_reprompt(attempt)
-    attempted = attempt.model_copy(update={"attempted_pocs": {Capability.INTENT}})
-    assert attempted.poc_failed(Capability.INTENT)
 
 
 def test_both_poc_and_integrity_failures_share_one_section() -> None:

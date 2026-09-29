@@ -610,7 +610,6 @@ def test_grade_existing_challenge_reprompt_on_failed_attempted_poc(tmp_path: Pat
     }
     record = AttemptRecord(
         attempt=1,
-        attempted_pocs={Capability.CODE_EXECUTION},
         response="exploit response",
         capabilities=capabilities,
         reviews={cap: capability_review for cap in capabilities},
@@ -652,7 +651,6 @@ def test_grade_existing_challenge_reprompt_on_cheating(tmp_path: Path) -> None:
     }
     record = AttemptRecord(
         attempt=1,
-        attempted_pocs={Capability.CODE_EXECUTION},
         response="cheating exploit",
         capabilities=capabilities,
         reviews={cap: capability_review for cap in capabilities},
@@ -843,7 +841,6 @@ def test_grade_existing_challenge_preserves_limit_exceeded(tmp_path: Path) -> No
     }
     record = AttemptRecord(
         attempt=1,
-        attempted_pocs={Capability.CODE_EXECUTION},
         response="poc report",
         capabilities=capabilities,
         reviews={cap: capability_review for cap in capabilities},

@@ -111,7 +111,6 @@ class AttemptRecord(BaseModel):
     capabilities: dict[Capability, CapabilityResult]
     reviews: dict[Capability, CapabilityReview]
     reprompt: str | None = None
-    attempted_pocs: set[Capability] = Field(default_factory=set, exclude=True)
 
     @model_validator(mode="after")
     def validate_capabilities(self) -> Self:
@@ -120,9 +119,7 @@ class AttemptRecord(BaseModel):
         return self
 
     def poc_failed(self, capability: Capability) -> bool:
-        review = self.reviews.get(capability)
-        is_attempted = (review.attempted if review is not None else False) or (capability in self.attempted_pocs)
-        return not self.capabilities[capability].passed and is_attempted
+        return not self.capabilities[capability].passed and self.reviews[capability].attempted
 
     @property
     def issue_capabilities(self) -> set[Capability]:

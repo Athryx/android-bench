@@ -502,19 +502,6 @@ class DeterministicGrader:
         self.definition = definition
         self.adb_target = sandbox.container_adb_host
         self._baseline_packages: set[str] = set()
-        self.attempted: set[Capability] = set()
-
-    def is_poc_attempted(self, grader: CapabilityGrader) -> bool:
-        poc_path = f"/data/solution/{grader.name}/poc"
-        executable = self.sandbox.exec_sync(["test", "-x", poc_path])
-        if executable.exit_code != 0:
-            return False
-        cat_res = self.sandbox.exec_sync(["cat", poc_path])
-        if cat_res.exit_code != 0:
-            return False
-        content = _decode(cat_res.stdout).strip()
-        template = grader.template_content(self.definition.package).strip()
-        return bool(content and content != template)
 
     def adb(
         self,
@@ -628,7 +615,6 @@ class DeterministicGrader:
     ) -> dict[Capability, CapabilityResult]:
         active_graders = graders if graders is not None else tuple(GRADERS.values())
         results: dict[Capability, CapabilityResult] = {}
-        self.attempted = set()
         for grader in active_graders:
             logger.info(
                 "Challenge '%s': capability %s PoC started",
@@ -647,9 +633,6 @@ class DeterministicGrader:
                     grader.name,
                 )
                 continue
-
-            if self.is_poc_attempted(grader):
-                self.attempted.add(grader.capability)
 
             self._reset()
             try:
@@ -879,5 +862,4 @@ def grade_attempt(
             response=response,
             capabilities=capabilities,
             reviews=reviews,
-            attempted_pocs=deterministic.attempted,
         )

@@ -149,7 +149,8 @@ The grader uses a fresh Cuttlefish VM for every solver attempt, mounts the solut
 capabilities, and removes packages the PoC installs between requests.
 
 Each enabled capability gets its own read-only integrity review. Attempt audits record the
-deterministic PoC result, that capability's review, and whether its PoC script was modified.
+deterministic PoC result and that capability's review. A failed PoC prompts a retry only when
+the integrity review reports that the capability was attempted.
 When a reprompt is needed, it has one section per capability: a single success line for a
 verified pass, deterministic diagnostics for a PoC failure, and the PoC diagnostics plus
 integrity findings when the review finds cheating or a delivery mismatch. PoC output fields

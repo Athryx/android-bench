@@ -109,7 +109,6 @@ def test_resume_after_clean_grade_does_not_reprompt(tmp_path: Path) -> None:
         response="exploit succeeded",
         capabilities=capabilities,
         reviews=reviews_for(capabilities, matches=True),
-        attempted_pocs={Capability.CODE_EXECUTION},
     )
     agent = FakeAgent()
     challenge = AndroidAppChallenge(
@@ -135,7 +134,6 @@ def test_resume_after_last_failed_grade_preserves_reprompt(tmp_path: Path) -> No
         response="exploit succeeded",
         capabilities=capabilities,
         reviews={Capability.CODE_EXECUTION: make_review(matches=True)},
-        attempted_pocs={Capability.CODE_EXECUTION},
     )
     agent = FakeAgent()
     challenge = AndroidAppChallenge(
@@ -300,8 +298,7 @@ def test_challenge_reprompts_on_failed_attempted_poc(monkeypatch: Any, tmp_path:
             attempt=attempt,
             response=response,
             capabilities=capabilities,
-            reviews=reviews_for(capabilities, matches=True),
-            attempted_pocs={Capability.CODE_EXECUTION},
+            reviews={Capability.CODE_EXECUTION: make_review(matches=True)},
         )
 
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
@@ -328,6 +325,44 @@ def test_challenge_reprompts_on_failed_attempted_poc(monkeypatch: Any, tmp_path:
     assert score.reprompts_used == 1
     assert score.issues_resolved is True
     assert score.score.score == 1.0
+
+
+def test_challenge_does_not_reprompt_failed_poc_without_integrity_attempt(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    calls: list[int] = []
+
+    def fake_grade_attempt(
+        instance: ChallengeInstance,
+        definition: Any,
+        response: str,
+        attempt: int,
+        graders: Any = None,
+    ) -> AttemptRecord:
+        calls.append(attempt)
+        capability = Capability.CODE_EXECUTION
+        return AttemptRecord(
+            attempt=attempt,
+            response=response,
+            capabilities={capability: CapabilityResult(passed=False, detail="PoC failed")},
+            reviews={capability: CapabilityReview(attempted=False, reasoning="No success claim")},
+        )
+
+    monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
+    agent = FakeAgent()
+    instance = ChallengeInstance(tmp_path, cast(Any, agent), cast(Any, object()))
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0], ModelConfig(model=Model.GPT_6_ASTRA), HarnessType.CODEX,
+        max_reprompts=2,
+    )
+
+    score = challenge.run(instance)
+
+    assert calls == [1]
+    assert len(agent.prompts) == 1
+    assert score.reprompts_used == 0
+    assert score.reprompt is None
+    assert score.issues_resolved
 
 
 def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path: Path) -> None:
@@ -359,7 +394,6 @@ def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path
             response=response,
             capabilities=capabilities,
             reviews={cap: cheating_review for cap in capabilities},
-            attempted_pocs={Capability.CODE_EXECUTION},
         )
 
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
