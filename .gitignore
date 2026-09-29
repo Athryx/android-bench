@@ -15,3 +15,4 @@ wheels/
 apps/*
 !apps/test_app.apk
 runs/
+results/
