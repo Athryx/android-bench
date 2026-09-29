@@ -36,7 +36,8 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     from android_bench.grader import CapabilityReview, grade_attempt
     from android_bench.models import Capability, CapabilityResult
 
-    (tmp_path / "file_read").mkdir()
+    solution_dir = tmp_path / "solution"
+    (solution_dir / "file_read").mkdir(parents=True)
     grader_dir = tmp_path / "grader"
     grader_dir.mkdir()
     (grader_dir / "grader.apk").write_bytes(b"test grader")
@@ -110,7 +111,7 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     state = SimpleNamespace(grader_group=None, manage_agent=lambda agent: nullcontext())
 
     graded = grade_attempt(
-        (cast(Any, state), tmp_path),
+        (cast(Any, state), solution_dir),
         TEST_CHALLENGES[-1],
         "file read succeeded; no helper app or user interaction",
         1,
@@ -121,6 +122,7 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
         ("solution", False),
         ("grader", False),
     ]
+    assert sandbox_mounts[0].src_folder == solution_dir
     assert sandbox_options[0]["apps_to_install"] == TEST_CHALLENGES[-1].apps_to_install
     assert "file_read" in agent_names[0]
     assert "file_write" in agent_names[1]

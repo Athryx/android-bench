@@ -92,8 +92,10 @@ For OpenRouter-backed models, `model_config` also accepts either a single
 and `zdr`. Keep API keys in `.env`; do not put `api_key_override` in committed
 benchmark configuration.
 
-For standard benchmark execution, the results directory must be new or empty. Each challenge records KBench results plus detailed
-per-attempt audits under `<results>/<challenge>/grading/`.
+For standard benchmark execution, the results directory must be new or empty. Each challenge
+stores solver files under `<results>/<challenge>/solution/`, which is mounted at `/data/solution`.
+Challenge results stay in `<results>/<challenge>/results.toml`, with per-attempt audits under
+`<results>/<challenge>/grading/`. These result files are outside the mounted solution folder.
 
 ### Execution Limits
 
@@ -125,7 +127,7 @@ uv run android-bench run --config benchmark_config.toml --results results/ --tes
 
 When `--test-grader` is specified:
 - Benchmark solver agents are not executed.
-- The grader runs against existing challenge solutions in `<results>/<challenge>/`.
+- The grader runs against existing challenge solutions in `<results>/<challenge>/solution/`.
 - The final agent response is extracted directly from `<results>/<challenge>_transcript.json`.
 - Grader instances run concurrently, bounded by `num_instances`.
 - If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.

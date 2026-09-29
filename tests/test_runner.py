@@ -85,6 +85,11 @@ def test_run_challenge_passes_internet_setting_to_sandbox(tmp_path: Path) -> Non
         extra_hosts={"api.openai.com": "127.0.0.1"},
         apps_to_install=(),
     )
+    mount = cls.call_args.args[3][0]
+    assert mount.src_folder == tmp_path / "internet-test" / "solution"
+    assert mount.writable
+    assert (tmp_path / "internet-test" / "results.toml").is_file()
+    assert not (mount.src_folder / "results.toml").exists()
 
 
 def test_run_challenge_passes_test_app_installation_to_sandbox(tmp_path: Path) -> None:
@@ -290,7 +295,9 @@ def test_run_challenge_calls_prepare_solution(tmp_path: Path) -> None:
     with patch("android_bench.runner.AndroidBenchSandbox", return_value=sandbox):
         run_challenge(state, challenge)
 
-    challenge.prepare_solution.assert_called_once_with(tmp_path / "prepare-test")
+    challenge.prepare_solution.assert_called_once_with(
+        tmp_path / "prepare-test" / "solution"
+    )
 
 
 def test_extract_final_response_jsonl(tmp_path: Path) -> None:
@@ -428,7 +435,7 @@ def test_grade_existing_challenge_jsons_fallback(tmp_path: Path) -> None:
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     sol_dir = tmp_path / "jsons-ch"
-    sol_dir.mkdir()
+    (sol_dir / "solution").mkdir(parents=True)
     # Write to .jsons instead of .json
     transcript = tmp_path / "jsons-ch_transcript.jsons"
     transcript.write_text('{"kind": "ai_text", "text": "working exploit"}\n')
@@ -460,13 +467,16 @@ def test_grade_existing_challenge_jsons_fallback(tmp_path: Path) -> None:
     assert isinstance(result.score, float)
     assert result.issues_resolved is True
     assert result.score.score == 1.0
+    challenge.grade_solution.assert_called_once_with(
+        (state, sol_dir / "solution"), "working exploit", attempt=1
+    )
 
 
 def test_grade_existing_challenge_matching_disclosure(tmp_path: Path) -> None:
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     sol_dir = tmp_path / "test-ch"
-    sol_dir.mkdir()
+    (sol_dir / "solution").mkdir(parents=True)
     transcript = tmp_path / "test-ch_transcript.json"
     transcript.write_text('{"kind": "ai_text", "text": "working exploit"}\n')
 
@@ -499,7 +509,7 @@ def test_grade_existing_challenge_matching_disclosure(tmp_path: Path) -> None:
     assert result.reprompt is None
     assert result.score.score == 1.0
     challenge.grade_solution.assert_called_once_with(
-        (state, sol_dir), "working exploit", attempt=1
+        (state, sol_dir / "solution"), "working exploit", attempt=1
     )
 
 
@@ -507,7 +517,7 @@ def test_grade_existing_challenge_reprompt_on_mismatch(tmp_path: Path) -> None:
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     sol_dir = tmp_path / "mismatch-ch"
-    sol_dir.mkdir()
+    (sol_dir / "solution").mkdir(parents=True)
     transcript = tmp_path / "mismatch-ch_transcript.json"
     transcript.write_text('{"kind": "ai_text", "text": "undisclosed exploit"}\n')
 
@@ -552,7 +562,7 @@ def test_grade_existing_challenge_missing_files_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="solution directory not found"):
         grade_existing_challenge(state, challenge)
 
-    (tmp_path / "missing-ch").mkdir()
+    (tmp_path / "missing-ch" / "solution").mkdir(parents=True)
     with pytest.raises(FileNotFoundError, match="transcript not found"):
         grade_existing_challenge(state, challenge)
 
@@ -582,7 +592,7 @@ def test_grade_existing_challenge_reprompt_on_failed_attempted_poc(tmp_path: Pat
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     sol_dir = tmp_path / "failed-poc-ch"
-    sol_dir.mkdir()
+    (sol_dir / "solution").mkdir(parents=True)
     transcript = tmp_path / "failed-poc-ch_transcript.json"
     transcript.write_text('{"kind": "ai_text", "text": "exploit response"}\n')
 
@@ -630,7 +640,7 @@ def test_grade_existing_challenge_reprompt_on_cheating(tmp_path: Path) -> None:
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     sol_dir = tmp_path / "cheating-ch"
-    sol_dir.mkdir()
+    (sol_dir / "solution").mkdir(parents=True)
     transcript = tmp_path / "cheating-ch_transcript.json"
     transcript.write_text('{"kind": "ai_text", "text": "cheating exploit"}\n')
 
@@ -821,7 +831,7 @@ def test_grade_existing_challenge_preserves_limit_exceeded(tmp_path: Path) -> No
     challenge.definition.package = "com.test"
 
     solution_dir = tmp_path / challenge.name
-    solution_dir.mkdir()
+    (solution_dir / "solution").mkdir(parents=True)
     (solution_dir / "results.toml").write_text(
         'limit_exceeded = "time_limit limit reached (300)"\n'
     )

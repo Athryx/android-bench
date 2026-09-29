@@ -70,7 +70,7 @@ def test_mismatch_reprompts_and_regrades_fresh(
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = FakeAgent()
     instance = ChallengeInstance(
-        solution=tmp_path,
+        solution=tmp_path / "solution",
         agent=cast(Any, agent),
         sandbox=cast(Any, object()),
     )
@@ -90,6 +90,7 @@ def test_mismatch_reprompts_and_regrades_fresh(
     assert score.issues_resolved
     assert (tmp_path / "grading" / "attempt-1.toml").is_file()
     assert (tmp_path / "grading" / "attempt-2.toml").is_file()
+    assert not (tmp_path / "solution" / "grading").exists()
     messages = [record.message for record in caplog.records]
     assert messages.index(
         f"Challenge '{challenge.name}': initial agent run started (attempt=1)"
@@ -115,7 +116,7 @@ def test_resume_after_clean_grade_does_not_reprompt(tmp_path: Path) -> None:
         CHALLENGES[0], ModelConfig(model=Model.GPT_6_ASTRA), HarnessType.CODEX
     )
     score = challenge.run(
-        ChallengeInstance(tmp_path, cast(Any, agent), cast(Any, object())),
+        ChallengeInstance(tmp_path / "solution", cast(Any, agent), cast(Any, object())),
         initial_attempts=[record],
         start_attempt_index=1,
     )
@@ -141,7 +142,7 @@ def test_resume_after_last_failed_grade_preserves_reprompt(tmp_path: Path) -> No
         max_reprompts=2,
     )
     score = challenge.run(
-        ChallengeInstance(tmp_path, cast(Any, agent), cast(Any, object())),
+        ChallengeInstance(tmp_path / "solution", cast(Any, agent), cast(Any, object())),
         initial_attempts=[record],
         start_attempt_index=3,
     )
@@ -157,9 +158,9 @@ def test_prompt_names_all_graders_and_real_adb_host() -> None:
     )
     prompt = challenge.system_prompt("cuttlefish:6000")
     assert "cuttlefish:6000" in prompt
-    for capability in Capability:
-        assert capability.value in prompt
-        assert f"/data/solution/{capability.value}/poc" in prompt
+    for grader in challenge.graders:
+        assert grader.name in prompt
+        assert f"/data/solution/{grader.name}/poc" in prompt
     assert "no general Internet access" in prompt
     assert "Remote Zero-Click" in prompt
     assert "Local App Zero-Click" in prompt
@@ -189,8 +190,8 @@ def test_prepare_solution_creates_executable_templates_without_grader_details(tm
         HarnessType.CODEX,
     )
     challenge.prepare_solution(tmp_path)
-    for capability in Capability:
-        folder = tmp_path / capability.value
+    for grader in challenge.graders:
+        folder = tmp_path / grader.name
         assert folder.is_dir()
         poc = folder / "poc"
         assert poc.stat().st_mode & 0o111
@@ -304,7 +305,7 @@ def test_challenge_reprompts_on_failed_attempted_poc(monkeypatch: Any, tmp_path:
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = FakeAgent()
     instance = ChallengeInstance(
-        solution=tmp_path,
+        solution=tmp_path / "solution",
         agent=cast(Any, agent),
         sandbox=cast(Any, object()),
     )
@@ -350,7 +351,7 @@ def test_challenge_does_not_reprompt_failed_poc_without_integrity_attempt(
 
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = FakeAgent()
-    instance = ChallengeInstance(tmp_path, cast(Any, agent), cast(Any, object()))
+    instance = ChallengeInstance(tmp_path / "solution", cast(Any, agent), cast(Any, object()))
     challenge = AndroidAppChallenge(
         CHALLENGES[0], ModelConfig(model=Model.GPT_6_ASTRA), HarnessType.CODEX,
         max_reprompts=2,
@@ -399,7 +400,7 @@ def test_challenge_reprompts_on_cheating_and_exhausts(monkeypatch: Any, tmp_path
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = FakeAgent()
     instance = ChallengeInstance(
-        solution=tmp_path,
+        solution=tmp_path / "solution",
         agent=cast(Any, agent),
         sandbox=cast(Any, object()),
     )
@@ -470,7 +471,7 @@ def test_challenge_run_handles_limit_exceeded_on_initial_run(
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = LimitExceededAgent(history_file)
     instance = ChallengeInstance(
-        solution=tmp_path,
+        solution=tmp_path / "solution",
         agent=cast(Any, agent),
         sandbox=cast(Any, object()),
     )
@@ -532,7 +533,7 @@ def test_challenge_run_handles_limit_exceeded_on_reprompt(
     monkeypatch.setattr("android_bench.challenge.grade_attempt", fake_grade_attempt)
     agent = LimitOnRepromptAgent(history_file)
     instance = ChallengeInstance(
-        solution=tmp_path,
+        solution=tmp_path / "solution",
         agent=cast(Any, agent),
         sandbox=cast(Any, object()),
     )

@@ -198,7 +198,7 @@ disclose for each:
             solution_dir = instance_or_state[1]
         else:
             raise TypeError(f"Unexpected instance_or_state: {type(instance_or_state)}")
-        audit_dir = solution_dir / "grading"
+        audit_dir = solution_dir.parent / "grading"
         audit_dir.mkdir(parents=True, exist_ok=True)
         (audit_dir / f"attempt-{attempt}.toml").write_text(
             record.model_dump_toml()

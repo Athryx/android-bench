@@ -60,7 +60,7 @@ def test_resume_challenge_already_completed(tmp_path: Path) -> None:
     challenge.name = "ch_already_done"
 
     solution_dir = tmp_path / challenge.name
-    solution_dir.mkdir()
+    (solution_dir / "solution").mkdir(parents=True)
     completed_score = _sample_exploit_score(challenge.name)
     existing_result = AndroidChallengeResult(
         score=completed_score,
@@ -100,7 +100,7 @@ def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:
     challenge.limits = None
 
     solution_dir = tmp_path / challenge.name
-    solution_dir.mkdir()
+    (solution_dir / "solution").mkdir(parents=True)
     (solution_dir / "results.toml").write_text(
         'status = "grading"\nsession_id = "agent_finished_sess"\ncurrent_attempt = 1\nreprompts_used = 0\n'
     )
@@ -142,6 +142,11 @@ def test_resume_challenge_interrupted_grader(tmp_path: Path) -> None:
     )
     mock_sandbox_cls.assert_called_once()
     assert mock_sandbox_cls.call_args.kwargs["existing_sandbox"] == mock_agent.sandbox
+    mount = mock_sandbox_cls.call_args.args[3][0]
+    assert mount.src_folder == solution_dir / "solution"
+    assert mount.writable
+    assert not (mount.src_folder / "results.toml").exists()
+    assert challenge.run.call_args.args[0].solution == mount.src_folder
     # challenge.run should receive initial_response extracted from transcript
     challenge.run.assert_called_once()
     call_kwargs = challenge.run.call_args.kwargs
@@ -167,7 +172,7 @@ def test_resume_challenge_interrupted_agent(tmp_path: Path) -> None:
     challenge.limits = None
 
     solution_dir = tmp_path / challenge.name
-    solution_dir.mkdir()
+    (solution_dir / "solution").mkdir(parents=True)
     (solution_dir / "results.toml").write_text(
         'status = "running"\nsession_id = "interrupted_sess_1"\ncurrent_attempt = 1\nreprompts_used = 0\n'
     )
@@ -218,7 +223,7 @@ def test_resume_challenge_fallback_when_resumed_agent_unavailable(tmp_path: Path
     challenge.name = "ch_fallback"
 
     solution_dir = tmp_path / challenge.name
-    solution_dir.mkdir()
+    (solution_dir / "solution").mkdir(parents=True)
     (solution_dir / "results.toml").write_text(
         'status = "running"\nsession_id = "missing_session"\n'
     )

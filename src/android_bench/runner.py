@@ -173,7 +173,8 @@ def _failed_challenge_result(
 
 def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
     logger.info("Challenge '%s': preparing solution", challenge.name)
-    solution = state.solutions_folder / challenge.name
+    challenge_dir = state.solutions_folder / challenge.name
+    solution = challenge_dir / "solution"
     solution.mkdir(parents=True, exist_ok=True)
     prepare_solution = getattr(challenge, "prepare_solution", None)
     if callable(prepare_solution):
@@ -226,11 +227,11 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             axes={},
             runtime=0.0,
         )
-        (solution / "results.toml").write_text(init_result.model_dump_toml())
+        (challenge_dir / "results.toml").write_text(init_result.model_dump_toml())
 
         def on_progress(p_res: AndroidChallengeResult) -> None:
             p_res.runtime = time.perf_counter() - start_time
-            (solution / "results.toml").write_text(p_res.model_dump_toml())
+            (challenge_dir / "results.toml").write_text(p_res.model_dump_toml())
 
         outcome: Any
         try:
@@ -281,15 +282,16 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
             session_id=session_id,
             status="completed",
         )
-    (solution / "results.toml").write_text(result.model_dump_toml())
+    (challenge_dir / "results.toml").write_text(result.model_dump_toml())
     return result
 
 
 def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
-    solution = state.solutions_folder / challenge.name
-    results_file = solution / "results.toml"
+    challenge_dir = state.solutions_folder / challenge.name
+    solution = challenge_dir / "solution"
+    results_file = challenge_dir / "results.toml"
     if not results_file.is_file():
-        results_file = solution / "results.json"
+        results_file = challenge_dir / "results.json"
     transcript_file = state.solutions_folder / f"{challenge.name}_transcript.json"
     if not transcript_file.is_file():
         transcript_file = state.solutions_folder / f"{challenge.name}_transcript.jsons"
@@ -333,7 +335,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
             pass
 
     # Check existing graded attempts
-    audit_dir = solution / "grading"
+    audit_dir = challenge_dir / "grading"
     existing_attempts: list[AttemptRecord] = []
     if audit_dir.is_dir():
         for att_path in sorted(audit_dir.glob("attempt-*.*")):
@@ -368,7 +370,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
             pass
 
     # If no session_id is known and solution doesn't exist, run fresh
-    if session_id is None and not solution.is_dir():
+    if session_id is None and not challenge_dir.is_dir():
         return run_challenge(state, challenge)
 
     initial_response: str | None = None
@@ -441,7 +443,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         logger.info("Challenge '%s': resumed solver agent ready", challenge.name)
         def on_progress(p_res: AndroidChallengeResult) -> None:
             p_res.runtime = time.perf_counter() - start_time
-            (solution / "results.toml").write_text(p_res.model_dump_toml())
+            (challenge_dir / "results.toml").write_text(p_res.model_dump_toml())
 
         outcome: Any
         try:
@@ -507,7 +509,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
             session_id=resumed_session_id,
             status="completed",
         )
-    (solution / "results.toml").write_text(result.model_dump_toml())
+    (challenge_dir / "results.toml").write_text(result.model_dump_toml())
     return result
 
 
@@ -734,7 +736,8 @@ def extract_final_response(transcript_path: Path) -> str:
 
 
 def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
-    solution = state.solutions_folder / challenge.name
+    challenge_dir = state.solutions_folder / challenge.name
+    solution = challenge_dir / "solution"
     if not solution.is_dir():
         raise FileNotFoundError(f"Challenge solution directory not found: {solution}")
 
@@ -745,9 +748,9 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
         raise FileNotFoundError(f"Challenge transcript not found: {transcript_path}")
 
     existing_limit: str | None = None
-    existing_results_file = solution / "results.toml"
+    existing_results_file = challenge_dir / "results.toml"
     if not existing_results_file.is_file():
-        existing_results_file = solution / "results.json"
+        existing_results_file = challenge_dir / "results.json"
     if existing_results_file.is_file():
         try:
             content = existing_results_file.read_text(encoding="utf-8")
