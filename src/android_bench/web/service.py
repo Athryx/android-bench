@@ -8,6 +8,7 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
+from android_bench.catalog import CHALLENGE_BY_NAME, ChallengeName
 from android_bench.models import CAPABILITY_WEIGHT, Capability
 from android_bench.web.models import (
     AttemptDetail,
@@ -401,14 +402,22 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
                     except ValueError:
                         pass
 
-                    cap_passed = bool(cap_res.get("passed", False))
+                    raw_attempted = cap_rev.get("attempted")
+                    if raw_attempted is not None:
+                        is_attempted = bool(raw_attempted)
+                    else:
+                        is_attempted = bool(cap_res.get("passed", False)) or bool(cap_res.get("stdout")) or bool(cap_res.get("stderr"))
+
+                    cap_passed = bool(cap_res.get("passed", False)) and is_attempted
                     has_integrity = bool(
                         cap_rev.get("cheating") is True
-                        or (cap_rev.get("attempted") and cap_rev.get("declared_local_app") != cap_rev.get("requires_local_app"))
-                        or (cap_rev.get("attempted") and cap_rev.get("declared_user_interaction") != cap_rev.get("requires_user_interaction"))
+                        or (is_attempted and cap_rev.get("declared_local_app") != cap_rev.get("requires_local_app"))
+                        or (is_attempted and cap_rev.get("declared_user_interaction") != cap_rev.get("requires_user_interaction"))
                     )
 
                     cap_score = axes_dict.get(cap_name, weight if cap_passed and not has_integrity else 0.0)
+                    if not is_attempted:
+                        cap_score = 0.0
 
                     capabilities_dict[str(cap_name)] = CapabilityDetail(
                         name=str(cap_name),
@@ -420,7 +429,7 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
                         stderr=str(cap_res.get("stderr", "")),
                         logcat=str(cap_res.get("logcat", "")),
                         exit_code=cap_res.get("exit_code"),
-                        attempted=bool(cap_rev.get("attempted", True)),
+                        attempted=is_attempted,
                         cheating=cap_rev.get("cheating"),
                         requires_local_app=cap_rev.get("requires_local_app"),
                         requires_user_interaction=cap_rev.get("requires_user_interaction"),
@@ -439,6 +448,40 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
                     )
                 )
 
+        # Determine configured / enabled capabilities for this challenge
+        configured_caps: list[str] = []
+        if "enabled_capabilities" in data and isinstance(data["enabled_capabilities"], list):
+            configured_caps = [str(c) for c in data["enabled_capabilities"]]
+        elif config_dict and "capabilities" in config_dict and isinstance(config_dict["capabilities"], list):
+            configured_caps = [str(c) for c in config_dict["capabilities"]]
+        else:
+            ch_def = CHALLENGE_BY_NAME.get(ch_name)
+            if ch_def is None:
+                try:
+                    ch_def = CHALLENGE_BY_NAME.get(ChallengeName(ch_name))
+                except (ValueError, KeyError):
+                    ch_def = None
+            if ch_def is not None:
+                if ch_def.enabled_capabilities is not None:
+                    configured_caps = [c.value for c in ch_def.enabled_capabilities]
+                else:
+                    configured_caps = [c.value for c in Capability]
+
+        # Also include any capability that appears in axes or was graded in attempts
+        all_caps_set = set(configured_caps)
+        all_caps_set.update(axes_dict.keys())
+        for att in attempts_list:
+            all_caps_set.update(att.capabilities.keys())
+
+        # Preserve canonical order: standard Capability order first, then any extra
+        ordered_caps: list[str] = []
+        for c in Capability:
+            if c.value in all_caps_set:
+                ordered_caps.append(c.value)
+        for c in sorted(all_caps_set):
+            if c not in ordered_caps:
+                ordered_caps.append(c)
+
         challenge_details.append(
             ChallengeDetail(
                 name=ch_name,
@@ -449,6 +492,7 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
                 session_id=str(session_id) if session_id else None,
                 trace_url=trace_url,
                 axes=axes_dict,
+                enabled_capabilities=ordered_caps,
                 attempts=attempts_list,
                 limit_exceeded=data.get("limit_exceeded"),
                 error=data.get("error"),

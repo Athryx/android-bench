@@ -68,6 +68,7 @@ class ChallengeDetail(BaseModel):
     session_id: str | None = None
     trace_url: str | None = None
     axes: dict[str, float] = Field(default_factory=dict)
+    enabled_capabilities: list[str] = Field(default_factory=list)
     attempts: list[AttemptDetail] = Field(default_factory=list)
     limit_exceeded: str | None = None
     error: str | None = None

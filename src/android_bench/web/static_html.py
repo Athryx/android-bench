@@ -271,6 +271,16 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
   color: var(--text-muted);
   border: 1px solid rgba(110, 118, 129, 0.3);
 }
+.pill-unattempted {
+  background: rgba(110, 118, 129, 0.12);
+  color: var(--text-dim);
+  border: 1px solid rgba(110, 118, 129, 0.25);
+}
+.unattempted-score {
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  border-color: rgba(110, 118, 129, 0.25) !important;
+}
 .pill-score {
   font-family: var(--font-mono);
   font-weight: 600;
@@ -571,6 +581,78 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
   font-weight: 600;
   font-size: 11px;
   border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.collapse-arrow {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 14px;
+  text-align: center;
+}
+
+/* Main Overview Table */
+.overview-table-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.overview-table-header {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.main-overview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.main-overview-table th {
+  background: var(--panel-active);
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.main-overview-table th .th-sub {
+  font-size: 9.5px;
+  color: var(--text-dim);
+  text-transform: none;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.main-overview-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.main-overview-table tr:last-child td {
+  border-bottom: none;
+}
+
+.main-overview-table tbody tr {
+  transition: background 0.15s;
+}
+
+.main-overview-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .challenge-body {
@@ -1005,7 +1087,160 @@ function renderRunDetail(run) {
   if (cfg.internet_enabled) tags.push(`<span class="tag-item">Internet: <strong>Enabled</strong></span>`);
   if (cfg.time_limit) tags.push(`<span class="tag-item">Timeout: <strong>${formatDuration(cfg.time_limit)}</strong></span>`);
 
-  // Challenges HTML
+  // Overview Table
+  const STANDARD_CAPABILITIES = ['code_execution', 'file_write', 'file_read', 'intent', 'aslr_leak'];
+  const CAPABILITY_META = {
+    'code_execution': { title: 'Code Exec', weight: 1.0 },
+    'file_write': { title: 'File Write', weight: 0.30 },
+    'file_read': { title: 'File Read', weight: 0.25 },
+    'intent': { title: 'Intent', weight: 0.20 },
+    'aslr_leak': { title: 'ASLR Leak', weight: 0.15 },
+  };
+
+  const hasStandard = (run.challenges || []).some(ch => {
+    const chCaps = [
+      ...(ch.enabled_capabilities || []),
+      ...Object.keys(ch.axes || {}),
+    ];
+    return chCaps.some(c => STANDARD_CAPABILITIES.includes(c));
+  });
+
+  const tableCaps = [];
+  if (hasStandard || !run.challenges || run.challenges.length === 0) {
+    tableCaps.push(...STANDARD_CAPABILITIES);
+  }
+
+  // Include any extra non-standard capabilities
+  for (const ch of (run.challenges || [])) {
+    const chCaps = [
+      ...(ch.enabled_capabilities || []),
+      ...Object.keys(ch.axes || {}),
+      ...(ch.attempts || []).flatMap(att => Object.keys(att.capabilities || {}))
+    ];
+    for (const c of chCaps) {
+      if (!tableCaps.includes(c)) {
+        tableCaps.push(c);
+      }
+    }
+  }
+
+  let overviewRowsHtml = '';
+  if (!run.challenges || run.challenges.length === 0) {
+    overviewRowsHtml = `
+      <tr>
+        <td colspan="${tableCaps.length + 3}" style="text-align:center;padding:24px;color:var(--text-muted);">
+          No challenges found in this run.
+        </td>
+      </tr>
+    `;
+  } else {
+    for (const ch of run.challenges) {
+      const chScore = ch.score || 0.0;
+      let chScoreClass = chScore >= 0.99 ? 'pill-completed' : (chScore > 0 ? 'pill-partial' : 'pill-failed');
+
+      const latestAtt = (ch.attempts && ch.attempts.length > 0) ? ch.attempts[ch.attempts.length - 1] : null;
+
+      const isConfiguredCap = (capName) => {
+        if (Array.isArray(ch.enabled_capabilities) && ch.enabled_capabilities.length > 0) {
+          return ch.enabled_capabilities.includes(capName);
+        }
+        if (ch.axes && capName in ch.axes) return true;
+        if (latestAtt && latestAtt.capabilities && capName in latestAtt.capabilities) return true;
+        return false;
+      };
+
+      let cellsHtml = '';
+      for (const capName of tableCaps) {
+        if (!isConfiguredCap(capName)) {
+          cellsHtml += `<td style="text-align:center;color:var(--text-dim);font-weight:500;">-</td>`;
+          continue;
+        }
+
+        const capDetail = (latestAtt && latestAtt.capabilities) ? latestAtt.capabilities[capName] : null;
+        const isAttempted = capDetail ? (capDetail.attempted !== false) : (ch.axes && (ch.axes[capName] !== undefined && ch.axes[capName] > 0));
+
+        if (!isAttempted) {
+          cellsHtml += `
+            <td style="text-align:center;">
+              <span class="pill pill-unattempted pill-sm">UNATTEMPTED</span>
+            </td>
+          `;
+        } else {
+          const capScore = capDetail ? capDetail.score : ((ch.axes && ch.axes[capName] !== undefined) ? ch.axes[capName] : 0.0);
+          const meta = CAPABILITY_META[capName];
+          const capWeight = (capDetail && capDetail.weight > 0) ? capDetail.weight : (meta ? meta.weight : 0.0);
+
+          let capClass = 'pill-failed';
+          if (capScore > 0) {
+            capClass = (capWeight > 0 && capScore >= capWeight * 0.99) ? 'pill-completed' : 'pill-partial';
+          }
+          cellsHtml += `
+            <td style="text-align:center;">
+              <span class="pill pill-score ${capClass} pill-sm">${capScore.toFixed(2)}${capWeight > 0 ? ` / ${capWeight.toFixed(2)}` : ''}</span>
+            </td>
+          `;
+        }
+      }
+
+      overviewRowsHtml += `
+        <tr onclick="jumpToChallenge('${escapeHtml(ch.name)}')" style="cursor:pointer;" title="Click to view details for ${escapeHtml(ch.name)}">
+          <td>
+            <div style="font-weight:600;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;">
+              <span>${escapeHtml(ch.name)}</span>
+              <span class="pill pill-${ch.status} pill-sm">${ch.status}</span>
+            </div>
+            ${ch.package ? `<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${escapeHtml(ch.package)}</div>` : ''}
+          </td>
+          <td style="text-align:center;">
+            <span class="pill pill-score ${chScoreClass} pill-sm">${chScore.toFixed(3)}</span>
+            <div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">${formatDuration(ch.runtime)}</div>
+          </td>
+          ${cellsHtml}
+          <td style="text-align:right;">
+            <button class="btn btn-sm" onclick="event.stopPropagation(); jumpToChallenge('${escapeHtml(ch.name)}')" style="padding:2px 8px;font-size:11px;">
+              View ▾
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+  }
+
+  const overviewTableHtml = `
+    <div class="overview-table-card">
+      <div class="overview-table-header">
+        <h2 class="section-title">
+          <span>Challenges Overview (${(run.challenges || []).length})</span>
+        </h2>
+        <span style="font-size:11.5px;color:var(--text-dim);">Click a row or "View ▾" to view attempt details</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="main-overview-table">
+          <thead>
+            <tr>
+              <th style="min-width:180px;">Challenge</th>
+              <th style="text-align:center;min-width:100px;">Total Score</th>
+              ${tableCaps.map(c => {
+                const meta = CAPABILITY_META[c] || { title: c, weight: null };
+                return `
+                  <th style="text-align:center;min-width:120px;">
+                    <div>${escapeHtml(meta.title)}</div>
+                    ${meta.weight !== null ? `<div class="th-sub">Weight ${meta.weight.toFixed(2)}</div>` : ''}
+                  </th>
+                `;
+              }).join('')}
+              <th style="text-align:right;min-width:70px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${overviewRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Challenges HTML (collapsed by default)
   let challengesHtml = '';
   for (const ch of run.challenges) {
     const chScore = ch.score || 0.0;
@@ -1050,6 +1285,7 @@ function renderRunDetail(run) {
       <div class="challenge-card" id="card-${ch.name}">
         <div class="challenge-header" onclick="toggleChallengeBody('${ch.name}')">
           <div class="challenge-info">
+            <span class="collapse-arrow" id="arrow-${ch.name}">▸</span>
             <span class="challenge-name">${escapeHtml(ch.name)}</span>
             ${ch.package ? `<span class="challenge-pkg">${escapeHtml(ch.package)}</span>` : ''}
             <span class="pill pill-${ch.status} pill-sm">${ch.status}</span>
@@ -1057,10 +1293,10 @@ function renderRunDetail(run) {
           <div class="challenge-right">
             <span class="pill pill-score ${chScoreClass}">Score: ${chScore.toFixed(3)}</span>
             <span style="color:var(--text-dim);font-size:11px;">${formatDuration(ch.runtime)}</span>
-            <span class="btn btn-sm" style="padding:2px 8px;font-size:11px;">Details ▾</span>
+            <span class="btn btn-sm" id="btn-toggle-${ch.name}" style="padding:2px 8px;font-size:11px;">Details ▾</span>
           </div>
         </div>
-        <div class="challenge-body" id="body-${ch.name}">
+        <div class="challenge-body hidden" id="body-${ch.name}">
           ${traceHtml}
           ${attemptsHtml}
         </div>
@@ -1105,10 +1341,13 @@ function renderRunDetail(run) {
     <!-- Notes Section -->
     ${notesHtml}
 
-    <!-- Challenges Section -->
+    <!-- Challenges Overview Table -->
+    ${overviewTableHtml}
+
+    <!-- Challenge Drill-Down Section -->
     <div style="display:flex;flex-direction:column;gap:12px;">
       <h2 class="section-title">
-        <span>Challenges (${run.challenges.length})</span>
+        <span>Challenge Drill-Down (${run.challenges.length})</span>
       </h2>
       <div class="challenges-container">
         ${challengesHtml || '<div style="padding:20px;color:var(--text-muted);text-align:center;">No challenges found in this run.</div>'}
@@ -1121,14 +1360,40 @@ function renderAttemptView(chName, att, isActive) {
   // Axes Table
   let rowsHtml = '';
   for (const [capName, cap] of Object.entries(att.capabilities || {})) {
-    const isPassed = cap.passed;
-    const resultBadge = isPassed
-      ? `<span class="pill pill-completed pill-sm">PASSED</span>`
-      : `<span class="pill pill-failed pill-sm">FAILED</span>`;
+    const isAttempted = cap.attempted !== false;
+
+    let resultBadge;
+    let scorePill;
+    let labelColorStyle;
+    let detailColorStyle;
+
+    if (!isAttempted) {
+      resultBadge = `<span class="pill pill-unattempted pill-sm">UNATTEMPTED</span>`;
+      scorePill = `<span class="pill pill-score unattempted-score pill-sm">${cap.score.toFixed(2)} / ${cap.weight.toFixed(2)}</span>`;
+      labelColorStyle = `color: var(--text-dim);`;
+      detailColorStyle = `color: var(--text-dim); opacity: 0.75;`;
+    } else {
+      resultBadge = cap.passed
+        ? `<span class="pill pill-completed pill-sm">PASSED</span>`
+        : `<span class="pill pill-failed pill-sm">FAILED</span>`;
+      if (cap.exit_code !== null) {
+        resultBadge += ` <span style="font-size:10.5px;color:var(--text-dim);">(exit ${cap.exit_code})</span>`;
+      }
+
+      let capScoreClass = 'pill-failed';
+      if (cap.score > 0) {
+        capScoreClass = (cap.weight > 0 && cap.score >= cap.weight * 0.99) ? 'pill-completed' : 'pill-partial';
+      } else {
+        capScoreClass = 'pill-failed';
+      }
+      scorePill = `<span class="pill pill-score ${capScoreClass} pill-sm">${cap.score.toFixed(2)} / ${cap.weight.toFixed(2)}</span>`;
+      labelColorStyle = `color: var(--text);`;
+      detailColorStyle = `color: var(--text-muted);`;
+    }
 
     // Local app
     let localAppHtml = '<span style="color:var(--text-dim);">-</span>';
-    if (cap.attempted) {
+    if (isAttempted) {
       if (cap.declared_local_app !== null && cap.requires_local_app !== null && cap.declared_local_app !== cap.requires_local_app) {
         localAppHtml = `<span class="tag-alert" title="Declared: ${cap.declared_local_app ? 'Yes' : 'No'}, Required: ${cap.requires_local_app ? 'Yes' : 'No'}">⚠️ Mismatch</span>`;
       } else if (cap.requires_local_app) {
@@ -1140,7 +1405,7 @@ function renderAttemptView(chName, att, isActive) {
 
     // 0-Click vs 1-Click
     let clickHtml = '<span style="color:var(--text-dim);">-</span>';
-    if (cap.attempted) {
+    if (isAttempted) {
       if (cap.declared_user_interaction !== null && cap.requires_user_interaction !== null && cap.declared_user_interaction !== cap.requires_user_interaction) {
         clickHtml = `<span class="tag-alert" title="Declared: ${cap.declared_user_interaction ? '1-Click' : '0-Click'}, Required: ${cap.requires_user_interaction ? '1-Click' : '0-Click'}">⚠️ Mismatch</span>`;
       } else if (cap.requires_user_interaction) {
@@ -1152,7 +1417,7 @@ function renderAttemptView(chName, att, isActive) {
 
     // Cheating
     let cheatingHtml = '<span style="color:var(--text-dim);">-</span>';
-    if (cap.attempted) {
+    if (isAttempted) {
       if (cap.cheating === true) {
         cheatingHtml = `<span class="pill pill-failed pill-sm">⚠️ Cheating</span>`;
       } else if (cap.cheating === false) {
@@ -1160,28 +1425,19 @@ function renderAttemptView(chName, att, isActive) {
       }
     }
 
-    let capScoreClass = 'pill-failed';
-    if (cap.score > 0) {
-      capScoreClass = (cap.weight > 0 && cap.score >= cap.weight * 0.99) ? 'pill-completed' : 'pill-partial';
-    } else {
-      capScoreClass = 'pill-failed';
-    }
-
-    const scorePill = `<span class="pill pill-score ${capScoreClass} pill-sm">${cap.score.toFixed(2)} / ${cap.weight.toFixed(2)}</span>`;
-
     rowsHtml += `
       <tr>
         <td>
-          <div style="font-weight:600;font-size:12.5px;color:var(--text);">${escapeHtml(capName)}</div>
-          <div style="font-size:11px;color:var(--text-muted);">${escapeHtml(cap.detail || '')}</div>
+          <div style="font-weight:600;font-size:12.5px;${labelColorStyle}">${escapeHtml(capName)}</div>
+          <div style="font-size:11px;${detailColorStyle}">${escapeHtml(cap.detail || (!isAttempted ? 'Not attempted' : ''))}</div>
         </td>
-        <td>${resultBadge}${cap.exit_code !== null ? ` <span style="font-size:10.5px;color:var(--text-dim);">(exit ${cap.exit_code})</span>` : ''}</td>
+        <td>${resultBadge}</td>
         <td>${scorePill}</td>
         <td>${localAppHtml}</td>
         <td>${clickHtml}</td>
         <td>${cheatingHtml}</td>
         <td>
-          ${cap.reasoning ? `<div style="font-size:11px;color:var(--text-muted);max-width:320px;white-space:normal;overflow-wrap:anywhere;">${escapeHtml(cap.reasoning.substring(0, 180))}${cap.reasoning.length > 180 ? '...' : ''}</div>` : '<span style="color:var(--text-dim);">-</span>'}
+          ${cap.reasoning ? `<div style="font-size:11px;color:${isAttempted ? 'var(--text-muted)' : 'var(--text-dim)'};max-width:320px;white-space:normal;overflow-wrap:anywhere;">${escapeHtml(cap.reasoning.substring(0, 180))}${cap.reasoning.length > 180 ? '...' : ''}</div>` : '<span style="color:var(--text-dim);">-</span>'}
         </td>
       </tr>
     `;
@@ -1274,8 +1530,29 @@ function switchAttemptTab(chName, attemptNum) {
 
 function toggleChallengeBody(chName) {
   const body = document.getElementById(`body-${chName}`);
+  const arrow = document.getElementById(`arrow-${chName}`);
+  const btn = document.getElementById(`btn-toggle-${chName}`);
   if (body) {
-    body.classList.toggle('hidden');
+    const isHidden = body.classList.toggle('hidden');
+    if (arrow) arrow.textContent = isHidden ? '▸' : '▾';
+    if (btn) btn.textContent = isHidden ? 'Details ▾' : 'Details ▴';
+  }
+}
+
+function jumpToChallenge(chName) {
+  const card = document.getElementById(`card-${chName}`);
+  const body = document.getElementById(`body-${chName}`);
+  const arrow = document.getElementById(`arrow-${chName}`);
+  const btn = document.getElementById(`btn-toggle-${chName}`);
+  if (body && body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    if (arrow) arrow.textContent = '▾';
+    if (btn) btn.textContent = 'Details ▴';
+  }
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.style.borderColor = 'var(--accent)';
+    setTimeout(() => { card.style.borderColor = ''; }, 1500);
   }
 }
 

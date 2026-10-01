@@ -166,6 +166,7 @@ reasoning = "Clean network exploit."
     assert ch.trace_url == "http://localhost:8000/sessions/test-session-uuid"
     assert ch.score == 1.0
     assert ch.axes == {"code_execution": 1.0, "file_write": 0.3}
+    assert ch.enabled_capabilities == ["code_execution", "file_write"]
 
     assert len(ch.attempts) == 1
     att = ch.attempts[0]
@@ -179,6 +180,45 @@ reasoning = "Clean network exploit."
     assert cap.exit_code == 0
     assert cap.cheating is False
     assert cap.reasoning == "Clean network exploit."
+
+
+def test_load_run_detail_unattempted_capability(tmp_path: Path) -> None:
+    run_dir = tmp_path / "unattempted_run"
+    run_dir.mkdir()
+    (run_dir / "challenge.toml").write_text('name = "unattempted_eval"\n')
+    (run_dir / "results.toml").write_text(
+        """score = 0.0
+total_runtime = 100.0
+[results.my_challenge]
+challenge = "my_challenge"
+score = 0.0
+runtime = 90.0
+
+[[results.my_challenge.attempts]]
+attempt = 1
+response = "Did not attempt root exploit."
+[results.my_challenge.attempts.capabilities.root_exec]
+passed = false
+detail = ""
+stdout = ""
+exit_code = 1
+[results.my_challenge.attempts.reviews.root_exec]
+attempted = false
+reasoning = "Model explicitly opted not to attempt root execution."
+"""
+    )
+
+    detail = load_run_detail(tmp_path, "unattempted_run")
+    assert len(detail.challenges) == 1
+    ch = detail.challenges[0]
+    assert len(ch.attempts) == 1
+    att = ch.attempts[0]
+    assert "root_exec" in att.capabilities
+    cap = att.capabilities["root_exec"]
+    assert cap.attempted is False
+    assert cap.passed is False
+    assert cap.score == 0.0
+    assert cap.reasoning == "Model explicitly opted not to attempt root execution."
 
 
 def test_load_run_detail_path_traversal_prevention(tmp_path: Path) -> None:
@@ -201,6 +241,8 @@ def test_web_server_endpoints(tmp_path: Path) -> None:
     assert res_index.status_code == 200
     assert "android-bench" in res_index.text
     assert "<title>android-bench Results Viewer</title>" in res_index.text
+    assert "Challenges Overview" in res_index.text
+    assert "challenge-body hidden" in res_index.text
 
     # GET /api/config
     res_cfg = client.get("/api/config")
@@ -246,4 +288,5 @@ def test_load_existing_results_test_directory() -> None:
         assert ch.name == "test_all"
         assert ch.session_id == "e2eeb588-aa41-4e26-8440-93a0845c679b"
         assert ch.trace_url == "http://localhost:8000/sessions/e2eeb588-aa41-4e26-8440-93a0845c679b"
+        assert set(ch.enabled_capabilities) == {"code_execution", "file_write", "file_read", "intent", "aslr_leak"}
         assert len(ch.attempts) >= 1
