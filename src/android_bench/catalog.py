@@ -289,7 +289,21 @@ ALL_CHALLENGES: tuple[ChallengeDefinition, ...] = CHALLENGES + TEST_CHALLENGES
 CHALLENGE_BY_NAME = {definition.name: definition for definition in ALL_CHALLENGES}
 
 
-def select_challenges(names: list[ChallengeName] | None) -> tuple[ChallengeDefinition, ...]:
+def select_challenges(
+    names: list[Any] | None,
+) -> tuple[ChallengeDefinition, ...]:
     if names is None:
         return CHALLENGES
-    return tuple(CHALLENGE_BY_NAME[name] for name in names)
+    extracted_names: list[ChallengeName] = []
+    for item in names:
+        if isinstance(item, ChallengeName):
+            extracted_names.append(item)
+        elif hasattr(item, "name") and isinstance(item.name, ChallengeName):
+            extracted_names.append(item.name)
+        elif hasattr(item, "name"):
+            extracted_names.append(ChallengeName(item.name))
+        else:
+            extracted_names.append(ChallengeName(item))
+    return tuple(CHALLENGE_BY_NAME[name] for name in extracted_names)
+
+

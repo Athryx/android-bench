@@ -454,5 +454,53 @@ def test_run_command_names_run_with_date_and_time_to_minute(tmp_path: Path) -> N
     assert re.match(pattern, run.name) is not None
 
 
+def test_cli_builds_challenges_with_custom_overrides(tmp_path: Path) -> None:
+    from android_bench.cli import _build_challenges_for_config
+    from android_bench.catalog import CHALLENGE_BY_NAME, ChallengeName
+    from android_bench.config import BenchmarkConfig
+    from android_bench.models import Capability
+
+    seed_dir = tmp_path / "seed"
+    seed_dir.mkdir()
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "custom-cli-run",
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+            "challenges": [
+                {
+                    "name": "element",
+                    "capabilities": ["code_execution"],
+                    "solutions_folder": str(seed_dir),
+                    "extra_prompt": "Element extra prompt",
+                },
+                "vlc",
+            ],
+        }
+    )
+
+    definitions = (
+        CHALLENGE_BY_NAME[ChallengeName.ELEMENT],
+        CHALLENGE_BY_NAME[ChallengeName.VLC],
+    )
+    challenges = _build_challenges_for_config(config, definitions)
+    assert len(challenges) == 2
+
+    # element challenge
+    ch0 = challenges[0]
+    assert ch0.name == "element"
+    assert ch0.enabled_capabilities == (Capability.CODE_EXECUTION,)
+    assert ch0.solutions_folder == seed_dir
+    assert ch0.extra_prompt == "Element extra prompt"
+
+    # vlc challenge (default)
+    ch1 = challenges[1]
+    assert ch1.name == "vlc"
+    assert ch1.enabled_capabilities == CHALLENGE_BY_NAME[ChallengeName.VLC].enabled_capabilities
+    assert ch1.solutions_folder is None
+    assert ch1.extra_prompt is None
+
+
+
 
 

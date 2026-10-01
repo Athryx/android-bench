@@ -551,3 +551,69 @@ def test_challenge_run_handles_limit_exceeded_on_reprompt(
     assert score.reprompts_used == 1
     assert len(score.attempts) == 2
     assert score.attempts[1].response == "salvaged reprompt response"
+
+
+def test_prepare_solution_with_solutions_folder(tmp_path: Path) -> None:
+    seed_folder = tmp_path / "custom_seed"
+    seed_folder.mkdir()
+    poc_sub = seed_folder / "code_execution"
+    poc_sub.mkdir()
+    poc_file = poc_sub / "poc"
+    poc_file.write_text("#!/bin/bash\necho 'custom poc'\n")
+    poc_file.chmod(0o644)
+    extra_file = seed_folder / "helper.py"
+    extra_file.write_text("# helper\n")
+
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        solutions_folder=seed_folder,
+    )
+    dest_solution = tmp_path / "solution"
+    dest_solution.mkdir()
+    challenge.prepare_solution(dest_solution)
+
+    assert (dest_solution / "code_execution" / "poc").is_file()
+    assert (dest_solution / "code_execution" / "poc").read_text() == "#!/bin/bash\necho 'custom poc'\n"
+    assert (dest_solution / "code_execution" / "poc").stat().st_mode & 0o111
+    assert (dest_solution / "helper.py").is_file()
+    assert not (dest_solution / "file_write").exists()
+
+
+def test_prepare_solution_with_nonexistent_solutions_folder_raises(tmp_path: Path) -> None:
+    missing_seed = tmp_path / "nonexistent_seed"
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        solutions_folder=missing_seed,
+    )
+    dest_solution = tmp_path / "solution"
+    dest_solution.mkdir()
+    with pytest.raises(FileNotFoundError, match="Starting solutions folder does not exist"):
+        challenge.prepare_solution(dest_solution)
+
+
+def test_system_prompt_with_extra_prompt() -> None:
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        extra_prompt="Special hint: check the ContentProvider permissions.",
+    )
+    prompt = challenge.system_prompt("cuttlefish:6000")
+    assert "### Additional Instructions" in prompt
+    assert "Special hint: check the ContentProvider permissions." in prompt
+
+
+def test_system_prompt_without_extra_prompt() -> None:
+    challenge = AndroidAppChallenge(
+        CHALLENGES[0],
+        ModelConfig(model=Model.GPT_6_ASTRA),
+        HarnessType.CODEX,
+        extra_prompt="   \n  ",
+    )
+    prompt = challenge.system_prompt("cuttlefish:6000")
+    assert "### Additional Instructions" not in prompt
+

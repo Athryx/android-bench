@@ -5,6 +5,20 @@ internet_enabled = true
 summarize = true
 max_reprompts = 2
 
+# Challenges can be specified as a list of strings:
+# challenges = ["element", "shareit", "vlc"]
+#
+# Or as an array of tables with per-challenge configurations:
+# [[challenges]]
+# name = "element"
+# capabilities = ["code_execution", "file_write"]
+# solutions_folder = "seeds/element"   # Copied to /data/solution instead of generating default template
+# extra_prompt = "Focus on exported activities and intent filters."
+#
+# [[challenges]]
+# name = "vlc"
+
+
 [limits]
 token_limit = 500000
 turn_limit = 50

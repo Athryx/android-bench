@@ -11,7 +11,7 @@ from kbench import BenchmarkRun, Challenge
 from kexploit_agent import Limits
 from ksandbox.logging_utils import configure_logging
 
-from android_bench.catalog import select_challenges
+from android_bench.catalog import ChallengeDefinition, select_challenges
 from android_bench.challenge import AndroidAppChallenge
 from android_bench.config import BenchmarkConfig
 from android_bench.docker import setup_images
@@ -20,6 +20,42 @@ from android_bench.runner import (
     run_benchmark,
     run_test_grader,
 )
+
+
+def _build_challenges_for_config(
+    benchmark_config: BenchmarkConfig,
+    definitions: tuple[ChallengeDefinition, ...],
+) -> list[Challenge]:
+    overrides_by_name = {
+        cfg.name: cfg
+        for cfg in benchmark_config.challenge_configs
+    }
+    challenges: list[Challenge] = []
+    for definition in definitions:
+        cfg = overrides_by_name.get(definition.name)
+        enabled_capabilities = (
+            tuple(cfg.capabilities)
+            if cfg is not None and cfg.capabilities is not None
+            else definition.enabled_capabilities
+        )
+        solutions_folder = cfg.solutions_folder if cfg is not None else None
+        extra_prompt = cfg.extra_prompt if cfg is not None else None
+        challenges.append(
+            AndroidAppChallenge(
+                definition=definition,
+                configured_model=benchmark_config.agent_model_config,
+                configured_harness=benchmark_config.harness,
+                configured_internet_enabled=benchmark_config.internet_enabled,
+                configured_summarize=benchmark_config.summarize,
+                configured_limits=benchmark_config.limits,
+                max_reprompts=benchmark_config.max_reprompts,
+                enabled_capabilities=enabled_capabilities,
+                solutions_folder=solutions_folder,
+                extra_prompt=extra_prompt,
+            )
+        )
+    return challenges
+
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -131,19 +167,9 @@ def run_command(
     dated_name = format_dated_name(benchmark_config.name)
 
     selected_definitions = tuple(select_challenges(benchmark_config.challenges))
-    challenges: list[Challenge] = [
-        AndroidAppChallenge(
-            definition=definition,
-            configured_model=benchmark_config.agent_model_config,
-            configured_harness=benchmark_config.harness,
-            configured_internet_enabled=benchmark_config.internet_enabled,
-            configured_summarize=benchmark_config.summarize,
-            configured_limits=benchmark_config.limits,
-            max_reprompts=benchmark_config.max_reprompts,
-            enabled_capabilities=definition.enabled_capabilities,
-        )
-        for definition in selected_definitions
-    ]
+    challenges: list[Challenge] = _build_challenges_for_config(
+        benchmark_config, selected_definitions
+    )
     benchmark_run = BenchmarkRun(
         name=dated_name,
         num_instances=benchmark_config.num_instances,
@@ -256,19 +282,9 @@ def resume_command(
         benchmark_config.limits = Limits(**base_limits)
 
     selected_definitions = tuple(select_challenges(benchmark_config.challenges))
-    challenges: list[Challenge] = [
-        AndroidAppChallenge(
-            definition=definition,
-            configured_model=benchmark_config.agent_model_config,
-            configured_harness=benchmark_config.harness,
-            configured_internet_enabled=benchmark_config.internet_enabled,
-            configured_summarize=benchmark_config.summarize,
-            configured_limits=benchmark_config.limits,
-            max_reprompts=benchmark_config.max_reprompts,
-            enabled_capabilities=definition.enabled_capabilities,
-        )
-        for definition in selected_definitions
-    ]
+    challenges: list[Challenge] = _build_challenges_for_config(
+        benchmark_config, selected_definitions
+    )
     dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,
@@ -347,19 +363,9 @@ def test_grader_command(
             param_hint="--results",
         )
 
-    challenges: list[Challenge] = [
-        AndroidAppChallenge(
-            definition=definition,
-            configured_model=benchmark_config.agent_model_config,
-            configured_harness=benchmark_config.harness,
-            configured_internet_enabled=benchmark_config.internet_enabled,
-            configured_summarize=benchmark_config.summarize,
-            configured_limits=benchmark_config.limits,
-            max_reprompts=benchmark_config.max_reprompts,
-            enabled_capabilities=definition.enabled_capabilities,
-        )
-        for definition in selected_definitions
-    ]
+    challenges: list[Challenge] = _build_challenges_for_config(
+        benchmark_config, selected_definitions
+    )
     dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,

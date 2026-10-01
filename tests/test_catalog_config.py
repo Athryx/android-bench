@@ -203,3 +203,143 @@ def test_config_nested_limits_override_flat_timeout() -> None:
     )
     assert config.limits is not None
     assert config.limits.time_limit == 900.0
+
+
+def test_config_parses_challenge_config_table(tmp_path: Path) -> None:
+    from android_bench.config import ChallengeConfig
+    from android_bench.models import Capability
+
+    toml_path = tmp_path / "challenge.toml"
+    toml_path.write_text(
+        """
+        name = "custom-challenge-run"
+        harness = "codex"
+        
+        [model_config]
+        model = "gpt-6-astra"
+
+        [[challenges]]
+        name = "element"
+        capabilities = ["code_execution", "file_write"]
+        solutions_folder = "seeds/element"
+        extra_prompt = "Custom instructions for element"
+
+        [[challenges]]
+        name = "vlc"
+        """
+    )
+    config = BenchmarkConfig.from_file(toml_path)
+    assert config.challenges is not None
+    assert len(config.challenges) == 2
+
+    c0 = config.challenges[0]
+    assert isinstance(c0, ChallengeConfig)
+    assert c0.name == ChallengeName.ELEMENT
+    assert c0.capabilities == [Capability.CODE_EXECUTION, Capability.FILE_WRITE]
+    assert c0.solutions_folder == (tmp_path / "seeds/element").resolve()
+    assert c0.extra_prompt == "Custom instructions for element"
+
+    c1 = config.challenges[1]
+    assert isinstance(c1, ChallengeConfig)
+    assert c1.name == ChallengeName.VLC
+    assert c1.capabilities is None
+    assert c1.solutions_folder is None
+    assert c1.extra_prompt is None
+
+    # Test challenge_configs property
+    configs = config.challenge_configs
+    assert len(configs) == 2
+    assert configs[0].name == ChallengeName.ELEMENT
+    assert configs[1].name == ChallengeName.VLC
+
+
+def test_config_parses_mixed_challenges_and_aliases() -> None:
+    from android_bench.config import ChallengeConfig
+    from android_bench.models import Capability
+
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "mixed-run",
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+            "challenges": [
+                "vlc",
+                {
+                    "name": "shareit",
+                    "solution_folder": "/tmp/shareit_seed",
+                    "capabilities": ["code_execution"],
+                    "extra_prompt": "Extra instructions",
+                },
+            ],
+        }
+    )
+    assert config.challenges is not None
+    assert config.challenges[0] == ChallengeName.VLC
+    assert isinstance(config.challenges[1], ChallengeConfig)
+    assert config.challenges[1].name == ChallengeName.SHAREIT
+    assert config.challenges[1].solutions_folder == Path("/tmp/shareit_seed")
+    assert config.challenges[1].capabilities == [Capability.CODE_EXECUTION]
+    assert config.challenges[1].extra_prompt == "Extra instructions"
+
+    # challenge_configs normalizes strings to ChallengeConfig
+    cfgs = config.challenge_configs
+    assert len(cfgs) == 2
+    assert cfgs[0].name == ChallengeName.VLC
+    assert cfgs[0].capabilities is None
+    assert cfgs[1].name == ChallengeName.SHAREIT
+    assert cfgs[1].capabilities == [Capability.CODE_EXECUTION]
+
+
+def test_config_rejects_empty_and_duplicate_capabilities() -> None:
+    with pytest.raises(ValidationError):
+        BenchmarkConfig.model_validate(
+            {
+                "name": "bad-caps",
+                "harness": "codex",
+                "model_config": {"model": "gpt-6-astra"},
+                "challenges": [
+                    {"name": "element", "capabilities": []},
+                ],
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        BenchmarkConfig.model_validate(
+            {
+                "name": "dup-caps",
+                "harness": "codex",
+                "model_config": {"model": "gpt-6-astra"},
+                "challenges": [
+                    {"name": "element", "capabilities": ["code_execution", "code_execution"]},
+                ],
+            }
+        )
+
+
+def test_config_rejects_duplicate_challenges_with_mixed_types() -> None:
+    with pytest.raises(ValidationError, match="challenges contains duplicate names"):
+        BenchmarkConfig.model_validate(
+            {
+                "name": "dup-challenges",
+                "harness": "codex",
+                "model_config": {"model": "gpt-6-astra"},
+                "challenges": [
+                    "element",
+                    {"name": "element", "extra_prompt": "more prompt"},
+                ],
+            }
+        )
+
+
+def test_select_challenges_handles_challenge_configs() -> None:
+    from android_bench.config import ChallengeConfig
+
+    items = [
+        ChallengeName.VLC,
+        ChallengeConfig(name=ChallengeName.ELEMENT),
+    ]
+    selected = select_challenges(items)
+    assert len(selected) == 2
+    assert selected[0].name == ChallengeName.VLC
+    assert selected[1].name == ChallengeName.ELEMENT
+
