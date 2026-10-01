@@ -128,6 +128,11 @@ def run_command(
         "--dollar-limit",
         help="Dollar limit override in USD.",
     ),
+    notes: str | None = typer.Option(
+        None,
+        "--notes",
+        help="Optional notes describing this benchmark run (saved to NOTES.md).",
+    ),
 ) -> None:
     """Run the configured subset, or all challenges when omitted."""
     if results.exists() and any(results.iterdir()):
@@ -141,6 +146,7 @@ def run_command(
     turn = _unwrap(turn_limit)
     t_lim = _unwrap(time_limit)
     d_lim = _unwrap(dollar_limit)
+    notes_val = _unwrap(notes)
 
     cli_limits: dict[str, Any] = {}
     if tok is not None:
@@ -163,6 +169,8 @@ def run_command(
 
     results.mkdir(parents=True, exist_ok=True)
     (results / "challenge.toml").write_text(benchmark_config.formatted_toml())
+    if notes_val is not None and str(notes_val).strip():
+        (results / "NOTES.md").write_text(str(notes_val).strip() + "\n", encoding="utf-8")
 
     dated_name = format_dated_name(benchmark_config.name)
 
@@ -228,10 +236,16 @@ def resume_command(
         "--dollar-limit",
         help="Dollar limit override in USD.",
     ),
+    notes: str | None = typer.Option(
+        None,
+        "--notes",
+        help="Optional notes to save or append to NOTES.md in results directory.",
+    ),
 ) -> None:
     """Resume an existing benchmark run."""
     res = _unwrap(results)
     res_opt = _unwrap(results_opt)
+    notes_val = _unwrap(notes)
     target_results: Path | None = res or res_opt
     if target_results is None:
         raise typer.BadParameter("results directory must be provided", param_hint="results")
@@ -240,6 +254,14 @@ def resume_command(
         raise typer.BadParameter(
             f"results directory {target_results} must exist", param_hint="--results"
         )
+
+    if notes_val is not None and str(notes_val).strip():
+        notes_path = target_results / "NOTES.md"
+        if notes_path.is_file():
+            existing = notes_path.read_text(encoding="utf-8").rstrip()
+            notes_path.write_text(f"{existing}\n\n## Resume Notes\n{str(notes_val).strip()}\n", encoding="utf-8")
+        else:
+            notes_path.write_text(str(notes_val).strip() + "\n", encoding="utf-8")
 
     resolved_config: Path | None = _unwrap(config)
     if resolved_config is not None:
@@ -378,6 +400,39 @@ def test_grader_command(
 
 
 test_grader_command.__test__ = False  # type: ignore[attr-defined]
+
+
+@app.command("web")
+def web_command(
+    results: Path = typer.Option(
+        ...,
+        "--results",
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+        help="Directory containing benchmark results to monitor.",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host to bind the web server (default: 127.0.0.1).",
+    ),
+    port: int = typer.Option(
+        8080,
+        "--port",
+        help="Port to bind the web server (default: 8080).",
+    ),
+) -> None:
+    """Start the web viewer dashboard for android-bench results."""
+    from android_bench.web.server import run_server
+
+    target_results = _unwrap(results)
+    if target_results is None:
+        raise typer.BadParameter("results directory must be provided", param_hint="--results")
+    if not target_results.exists():
+        raise typer.BadParameter(f"results directory {target_results} does not exist", param_hint="--results")
+
+    run_server(results_dir=target_results, host=host, port=port)
 
 
 def main() -> None:

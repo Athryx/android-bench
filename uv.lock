@@ -36,6 +36,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cuttle-cli" },
     { name = "cuttle-types" },
+    { name = "fastapi" },
     { name = "kbench" },
     { name = "kexploit-agent" },
     { name = "kexploit-utils" },
@@ -44,6 +45,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tomli-w" },
     { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -56,6 +58,7 @@ dev = [
 requires-dist = [
     { name = "cuttle-cli", git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_cli&branch=main" },
     { name = "cuttle-types", git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fcuttle_server%2Fcuttle_types&branch=main" },
+    { name = "fastapi", specifier = ">=0.115" },
     { name = "kbench", git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkbench&branch=main" },
     { name = "kexploit-agent", git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_agent&branch=main" },
     { name = "kexploit-utils", git = "https://github.com/purseclab/kernelcveanalysis?subdirectory=ingots_tools%2Fkexploit_utils&branch=main" },
@@ -64,6 +67,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.27.2" },
+    { name = "uvicorn", specifier = ">=0.34" },
 ]
 
 [package.metadata.requires-dev]

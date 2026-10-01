@@ -9,6 +9,7 @@ from android_bench.cli import (
     resume_command,
     run_command,
     test_grader_command,
+    web_command,
 )
 
 
@@ -499,6 +500,77 @@ def test_cli_builds_challenges_with_custom_overrides(tmp_path: Path) -> None:
     assert ch1.enabled_capabilities == CHALLENGE_BY_NAME[ChallengeName.VLC].enabled_capabilities
     assert ch1.solutions_folder is None
     assert ch1.extra_prompt is None
+
+
+def test_run_command_writes_notes(tmp_path: Path) -> None:
+    config = tmp_path / "benchmark.json"
+    config.write_text(
+        """{
+          "name": "notes-smoke",
+          "num_instances": 1,
+          "harness": "codex",
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+    benchmark_result = type(
+        "BenchmarkResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: "{}"},
+    )()
+    results_dir = tmp_path / "results_notes"
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli.run_benchmark", return_value=benchmark_result),
+    ):
+        run_command(config, results_dir, notes="Investigating privilege escalation")
+
+    assert (results_dir / "NOTES.md").is_file()
+    assert "Investigating privilege escalation" in (results_dir / "NOTES.md").read_text(encoding="utf-8")
+
+
+def test_resume_command_appends_notes(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results_resume"
+    results_dir.mkdir()
+    (results_dir / "challenge.toml").write_text(
+        """name = "resumed_run"
+harness = "codex"
+[model_config]
+model = "gpt-6-astra"
+"""
+    )
+    (results_dir / "NOTES.md").write_text("Initial notes.\n")
+
+    benchmark_result = type(
+        "BenchmarkResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: "{}"},
+    )()
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli.resume_benchmark", return_value=benchmark_result),
+    ):
+        resume_command(results_dir, notes="Resuming after timeout fix")
+
+    content = (results_dir / "NOTES.md").read_text(encoding="utf-8")
+    assert "Initial notes." in content
+    assert "Resume Notes" in content
+    assert "Resuming after timeout fix" in content
+
+
+def test_web_command_starts_server(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+
+    with patch("android_bench.web.server.run_server") as run_server_mock:
+        web_command(results_dir, host="0.0.0.0", port=9090)
+
+    run_server_mock.assert_called_once_with(
+        results_dir=results_dir.resolve(),
+        host="0.0.0.0",
+        port=9090,
+    )
 
 
 

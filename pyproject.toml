@@ -14,10 +14,12 @@ dependencies = [
     "kexploit-agent",
     "kexploit-utils",
     "ksandbox",
+    "fastapi>=0.115",
     "pydantic>=2.11",
     "python-dotenv>=1.2.2",
     "tomli-w>=1.2.0",
     "typer>=0.27.2",
+    "uvicorn>=0.34",
 ]
 
 [project.scripts]
