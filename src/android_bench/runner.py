@@ -37,6 +37,7 @@ from android_bench.models import (
     calculate_scores,
 )
 from android_bench.sandbox import AndroidBenchSandbox
+from android_bench.trace import TranscriptParser, extract_final_response
 
 if TYPE_CHECKING:
     from android_bench.config import BenchmarkConfig
@@ -321,18 +322,15 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         except Exception:
             pass
 
-    if session_id is None and transcript_file.is_file():
+    transcript_parser: TranscriptParser | None = None
+    if transcript_file.is_file():
         try:
-            for line in transcript_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                ev = json.loads(line)
-                if isinstance(ev, dict) and ev.get("session_id"):
-                    session_id = ev["session_id"]
-                    break
+            transcript_parser = TranscriptParser.from_file(transcript_file)
         except Exception:
-            pass
+            transcript_parser = None
+
+    if session_id is None and transcript_parser is not None:
+        session_id = transcript_parser.get_session_id()
 
     # Check existing graded attempts
     audit_dir = challenge_dir / "grading"
@@ -356,27 +354,16 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     num_graded = len(existing_attempts)
 
     # Count completed agent runs from transcript
-    num_agent_runs = 0
-    if transcript_file.is_file():
-        try:
-            for line in transcript_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                ev = json.loads(line)
-                if isinstance(ev, dict) and ev.get("kind") == "session_end":
-                    num_agent_runs += 1
-        except Exception:
-            pass
+    num_agent_runs = transcript_parser.count_agent_runs() if transcript_parser is not None else 0
 
     # If no session_id is known and solution doesn't exist, run fresh
     if session_id is None and not challenge_dir.is_dir():
         return run_challenge(state, challenge)
 
     initial_response: str | None = None
-    if transcript_file.is_file() and num_agent_runs > num_graded:
+    if transcript_parser is not None and num_agent_runs > num_graded:
         try:
-            initial_response = extract_final_response(transcript_file)
+            initial_response = transcript_parser.get_final_response()
         except Exception:
             initial_response = None
 
@@ -631,108 +618,10 @@ def resume_benchmark(
 
 
 
-def extract_final_response(transcript_path: Path) -> str:
-    content = transcript_path.read_text(encoding="utf-8")
-    events: list[object] = []
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            parsed = json.loads(line)
-            if isinstance(parsed, list):
-                events.extend(parsed)
-            else:
-                events.append(parsed)
-        except json.JSONDecodeError:
-            pass
+def extract_final_response(transcript_path: Path | str) -> str:
+    """Extract final response from an agent transcript using TranscriptParser."""
+    return TranscriptParser.from_file(transcript_path).get_final_response()
 
-    if not events:
-        try:
-            data = json.loads(content)
-            if isinstance(data, list):
-                events.extend(data)
-            elif isinstance(data, dict):
-                events.append(data)
-        except json.JSONDecodeError:
-            pass
-
-    if not events:
-        raise ValueError(f"Unable to parse transcript from {transcript_path}")
-
-    # In multi-agent traces (Trace v2), identify the root agent (parent_agent_id is None or root_agent_id in session_info).
-    root_agent_id: str | None = None
-    for event in events:
-        if isinstance(event, dict):
-            if event.get("kind") == "agent_start" and event.get("parent_agent_id") is None:
-                root_agent_id = event.get("agent_id")
-                break
-            if event.get("kind") == "session_info" and event.get("root_agent_id"):
-                root_agent_id = event.get("root_agent_id")
-                break
-
-    def _extract_tool_text(args: object) -> str | None:
-        if isinstance(args, str) and args.strip():
-            return args
-        if isinstance(args, dict):
-            for key in ("text", "result", "output", "response"):
-                val = args.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val
-            if "text" not in args and args:
-                try:
-                    return json.dumps(args)
-                except Exception:
-                    pass
-        return None
-
-    # If root_agent_id is known, check root agent's ai_text first.
-    if root_agent_id is not None:
-        for event in reversed(events):
-            if (
-                isinstance(event, dict)
-                and event.get("kind") == "ai_text"
-                and event.get("agent_id") == root_agent_id
-            ):
-                text = event.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text
-
-        for event in reversed(events):
-            if (
-                isinstance(event, dict)
-                and event.get("kind") == "ai_tool_call"
-                and event.get("tool_name") in ("agent_out", "submit_output")
-                and event.get("agent_id") == root_agent_id
-            ):
-                text = _extract_tool_text(event.get("args"))
-                if text:
-                    return text
-
-    for event in reversed(events):
-        if isinstance(event, dict) and event.get("kind") == "ai_text":
-            text = event.get("text")
-            if isinstance(text, str) and text.strip():
-                return text
-
-    for event in reversed(events):
-        if (
-            isinstance(event, dict)
-            and event.get("kind") == "ai_tool_call"
-            and event.get("tool_name") in ("agent_out", "submit_output")
-        ):
-            text = _extract_tool_text(event.get("args"))
-            if text:
-                return text
-
-    for event in reversed(events):
-        if isinstance(event, dict):
-            for key in ("response", "final_response", "content"):
-                val = event.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val
-
-    raise ValueError(f"No agent response found in transcript {transcript_path}")
 
 
 def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:

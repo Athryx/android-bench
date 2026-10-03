@@ -10,6 +10,7 @@ from typing import Any
 
 from android_bench.catalog import CHALLENGE_BY_NAME, ChallengeName
 from android_bench.models import CAPABILITY_WEIGHT, Capability
+from android_bench.trace import TranscriptParser
 from android_bench.web.models import (
     AttemptDetail,
     CapabilityDetail,
@@ -38,6 +39,16 @@ def build_trace_url(session_id: str | None) -> str | None:
     if not session_id or not session_id.strip():
         return None
     return f"{get_kagent_web_host()}/sessions/{session_id.strip()}"
+
+def extract_challenge_name(val: Any) -> str:
+    """Safely extract a clean challenge name string from a string or challenge config dict."""
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, dict):
+        name = val.get("name") or val.get("challenge")
+        if isinstance(name, str):
+            return name.strip()
+    return ""
 
 
 def is_run_dir(path: Path) -> bool:
@@ -75,11 +86,7 @@ def get_run_timestamp(run_dir: Path) -> tuple[str, float]:
     if candidate_ts is None:
         for trans_file in sorted(run_dir.glob("*_transcript.json*")):
             try:
-                for line in trans_file.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    ev = json.loads(line)
+                for ev in TranscriptParser.from_file(trans_file).iter_events():
                     if isinstance(ev, dict) and "timestamp" in ev:
                         candidate_ts = float(ev["timestamp"])
                         break
@@ -129,8 +136,11 @@ def get_run_metadata(run_dir: Path) -> tuple[str, str, float | None, str]:
     cfg = _read_toml_or_json(run_dir / "challenge.toml")
     if not cfg:
         cfg = _read_toml_or_json(run_dir / "challenge.json")
-    if cfg and isinstance(cfg.get("name"), str):
-        challenge_name = cfg["name"]
+    if cfg:
+        if isinstance(cfg.get("name"), str):
+            challenge_name = cfg["name"]
+        elif isinstance(cfg.get("challenges"), list) and len(cfg["challenges"]) == 1:
+            challenge_name = extract_challenge_name(cfg["challenges"][0])
 
     res = _read_toml_or_json(run_dir / "results.toml")
     if not res:
@@ -304,12 +314,22 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
         if "score" in results_dict and isinstance(results_dict["score"], (int, float)):
             overall_score = float(results_dict["score"])
 
+    # Map challenge configs by clean challenge name
+    challenge_configs_by_name: dict[str, dict[str, Any]] = {}
+    if config_dict and isinstance(config_dict.get("challenges"), list):
+        for item in config_dict["challenges"]:
+            c_name = extract_challenge_name(item)
+            if c_name:
+                challenge_configs_by_name[c_name] = item if isinstance(item, dict) else {"name": c_name}
+
     # Build challenges list
     challenges_map: dict[str, dict[str, Any]] = {}
     if results_dict and isinstance(results_dict.get("results"), dict):
         for ch_key, ch_data in results_dict["results"].items():
             if isinstance(ch_data, dict):
-                challenges_map[ch_key] = ch_data
+                clean_name = extract_challenge_name(ch_data.get("challenge")) or extract_challenge_name(ch_key)
+                if clean_name:
+                    challenges_map[clean_name] = ch_data
 
     # Also inspect challenge subdirectories for any additional or more detailed data
     for sub in run_dir.iterdir():
@@ -320,25 +340,24 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
             if sub_res_file.is_file():
                 sub_data = _read_toml_or_json(sub_res_file)
                 if sub_data and isinstance(sub_data, dict):
-                    ch_name = str(sub_data.get("challenge") or sub.name)
-                    if ch_name in challenges_map:
-                        # Merge detailed sub_data (e.g. attempts) if missing
-                        if "attempts" not in challenges_map[ch_name] and "attempts" in sub_data:
-                            challenges_map[ch_name]["attempts"] = sub_data["attempts"]
-                    else:
-                        challenges_map[ch_name] = sub_data
+                    clean_name = extract_challenge_name(sub_data.get("challenge")) or extract_challenge_name(sub.name)
+                    if clean_name:
+                        if clean_name in challenges_map:
+                            # Merge detailed sub_data (e.g. attempts) if missing
+                            if "attempts" not in challenges_map[clean_name] and "attempts" in sub_data:
+                                challenges_map[clean_name]["attempts"] = sub_data["attempts"]
+                        else:
+                            challenges_map[clean_name] = sub_data
 
     # Also check if challenge_test.toml or challenge.toml lists challenges that haven't started
-    if config_dict and isinstance(config_dict.get("challenges"), list):
-        for configured_ch in config_dict["challenges"]:
-            ch_str = str(configured_ch)
-            if ch_str not in challenges_map:
-                challenges_map[ch_str] = {
-                    "challenge": ch_str,
-                    "status": "pending",
-                    "score": 0.0,
-                    "runtime": 0.0,
-                }
+    for ch_name_key in challenge_configs_by_name:
+        if ch_name_key not in challenges_map:
+            challenges_map[ch_name_key] = {
+                "challenge": ch_name_key,
+                "status": "pending",
+                "score": 0.0,
+                "runtime": 0.0,
+            }
 
     challenge_details: list[ChallengeDetail] = []
     for ch_name, data in sorted(challenges_map.items()):
@@ -346,7 +365,52 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
         ch_score = float(raw_score.get("score", 0.0) if isinstance(raw_score, dict) else (raw_score or 0.0))
         ch_status = str(data.get("status", "completed"))
         session_id = data.get("session_id")
+
+        # Locate transcript file if present to resolve session_id, cost, token usage
+        ch_dir = run_dir / ch_name
+        transcript_file: Path | None = None
+        for cand in [
+            run_dir / f"{ch_name}_transcript.json",
+            run_dir / f"{ch_name}_transcript.jsons",
+            ch_dir / f"{ch_name}_transcript.json",
+            ch_dir / f"{ch_name}_transcript.jsons",
+            ch_dir / "transcript.json",
+            ch_dir / "transcript.jsons",
+        ]:
+            if cand.is_file():
+                transcript_file = cand
+                break
+
+        trans_meta = None
+        if transcript_file is not None:
+            try:
+                trans_meta = TranscriptParser.from_file(transcript_file).get_metadata()
+            except Exception:
+                pass
+
+        if not session_id and trans_meta is not None:
+            session_id = trans_meta.session_id
+
         trace_url = build_trace_url(session_id)
+
+        cost_usd: float | None = None
+        if "cost_usd" in data and isinstance(data["cost_usd"], (int, float)):
+            cost_usd = float(data["cost_usd"])
+        elif "cost" in data and isinstance(data["cost"], (int, float)):
+            cost_usd = float(data["cost"])
+        elif trans_meta is not None:
+            cost_usd = trans_meta.cost_usd
+
+        token_usage: dict[str, Any] | None = None
+        if isinstance(data.get("token_usage"), dict):
+            token_usage = data["token_usage"]
+        elif isinstance(data.get("tokens"), dict):
+            token_usage = data["tokens"]
+        elif trans_meta is not None and trans_meta.token_usage:
+            if hasattr(trans_meta.token_usage, "model_dump"):
+                token_usage = trans_meta.token_usage.model_dump()
+            elif isinstance(trans_meta.token_usage, dict):
+                token_usage = trans_meta.token_usage
 
         # Parse axes
         raw_axes = data.get("axes", {})
@@ -450,22 +514,25 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
 
         # Determine configured / enabled capabilities for this challenge
         configured_caps: list[str] = []
+        ch_cfg = challenge_configs_by_name.get(ch_name)
+        ch_def = CHALLENGE_BY_NAME.get(ch_name)
+        if ch_def is None:
+            try:
+                ch_def = CHALLENGE_BY_NAME.get(ChallengeName(ch_name))
+            except (ValueError, KeyError):
+                ch_def = None
+
         if "enabled_capabilities" in data and isinstance(data["enabled_capabilities"], list):
             configured_caps = [str(c) for c in data["enabled_capabilities"]]
+        elif ch_cfg and "capabilities" in ch_cfg and isinstance(ch_cfg["capabilities"], list):
+            configured_caps = [str(c) for c in ch_cfg["capabilities"]]
         elif config_dict and "capabilities" in config_dict and isinstance(config_dict["capabilities"], list):
             configured_caps = [str(c) for c in config_dict["capabilities"]]
-        else:
-            ch_def = CHALLENGE_BY_NAME.get(ch_name)
-            if ch_def is None:
-                try:
-                    ch_def = CHALLENGE_BY_NAME.get(ChallengeName(ch_name))
-                except (ValueError, KeyError):
-                    ch_def = None
-            if ch_def is not None:
-                if ch_def.enabled_capabilities is not None:
-                    configured_caps = [c.value for c in ch_def.enabled_capabilities]
-                else:
-                    configured_caps = [c.value for c in Capability]
+        elif ch_def is not None:
+            if ch_def.enabled_capabilities is not None:
+                configured_caps = [c.value for c in ch_def.enabled_capabilities]
+            else:
+                configured_caps = [c.value for c in Capability]
 
         # Also include any capability that appears in axes or was graded in attempts
         all_caps_set = set(configured_caps)
@@ -482,15 +549,21 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
             if c not in ordered_caps:
                 ordered_caps.append(c)
 
+        pkg = str(data.get("package", "")).strip()
+        if not pkg and ch_def is not None:
+            pkg = ch_def.package
+
         challenge_details.append(
             ChallengeDetail(
                 name=ch_name,
-                package=str(data.get("package", "")),
+                package=pkg,
                 status=ch_status,
                 score=ch_score,
                 runtime=float(data.get("runtime", 0.0)),
                 session_id=str(session_id) if session_id else None,
                 trace_url=trace_url,
+                cost_usd=cost_usd,
+                token_usage=token_usage,
                 axes=axes_dict,
                 enabled_capabilities=ordered_caps,
                 attempts=attempts_list,
@@ -498,6 +571,31 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
                 error=data.get("error"),
             )
         )
+
+    run_cost: float | None = None
+    if results_dict and "cost_usd" in results_dict and isinstance(results_dict["cost_usd"], (int, float)):
+        run_cost = float(results_dict["cost_usd"])
+    elif results_dict and "total_cost" in results_dict and isinstance(results_dict["total_cost"], (int, float)):
+        run_cost = float(results_dict["total_cost"])
+    else:
+        ch_costs = [ch.cost_usd for ch in challenge_details if ch.cost_usd is not None]
+        if ch_costs:
+            run_cost = sum(ch_costs)
+
+    run_tokens: dict[str, Any] | None = None
+    if results_dict and isinstance(results_dict.get("token_usage"), dict):
+        run_tokens = results_dict["token_usage"]
+    else:
+        merged_tokens: dict[str, int] = {}
+        has_tokens = False
+        for ch in challenge_details:
+            if ch.token_usage:
+                for k, v in ch.token_usage.items():
+                    if isinstance(v, (int, float)):
+                        merged_tokens[k] = merged_tokens.get(k, 0) + int(v)
+                        has_tokens = True
+        if has_tokens:
+            run_tokens = merged_tokens
 
     if challenge_name and challenge_name != folder_name:
         display_name = f"{folder_name} ({challenge_name})"
@@ -514,6 +612,8 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
         started_timestamp=started_ts,
         score=overall_score,
         total_runtime=total_runtime,
+        cost_usd=run_cost,
+        token_usage=run_tokens,
         status=status,
         notes=notes_content,
         config=run_config,

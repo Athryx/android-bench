@@ -6,6 +6,8 @@ HTML_CONTENT = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>android-bench Results Viewer</title>
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
 <style>
 :root {
   color-scheme: dark;
@@ -448,8 +450,120 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
 .notes-body {
   font-size: 13px;
   color: var(--text);
-  white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+.notes-body > *:first-child {
+  margin-top: 0 !important;
+}
+.notes-body > *:last-child {
+  margin-bottom: 0 !important;
+}
+.notes-body h1, .notes-body h2, .notes-body h3, .notes-body h4 {
+  color: var(--text);
+  margin-top: 18px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.notes-body h1 {
+  font-size: 18px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.notes-body h2 {
+  font-size: 15px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 4px;
+}
+.notes-body h3 { font-size: 14px; }
+.notes-body h4 { font-size: 13px; }
+.notes-body p {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.notes-body ul, .notes-body ol {
+  margin-top: 0;
+  margin-bottom: 10px;
+  padding-left: 22px;
+}
+.notes-body li {
+  margin-bottom: 4px;
+}
+.notes-body li > p {
+  margin-bottom: 4px;
+}
+.notes-body code {
+  background: rgba(110, 118, 129, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #f0f6fc;
+}
+.notes-body pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.notes-body pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.notes-body blockquote {
+  margin: 10px 0;
+  padding: 4px 14px;
+  color: var(--text-muted);
+  border-left: 3px solid var(--accent);
+  background: rgba(88, 166, 255, 0.05);
+  border-radius: 0 4px 4px 0;
+}
+.notes-body blockquote > *:last-child {
+  margin-bottom: 0;
+}
+.notes-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.notes-body th, .notes-body td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12.5px;
+}
+.notes-body th {
+  background: var(--panel-active);
+  font-weight: 600;
+  color: var(--text);
+}
+.notes-body tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.notes-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.notes-body a:hover {
+  text-decoration: underline;
+}
+.notes-body hr {
+  height: 1px;
+  background: var(--border);
+  border: none;
+  margin: 16px 0;
 }
 
 /* Section Headings */
@@ -667,6 +781,40 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
   display: none;
 }
 
+/* Cost & Token Usage Banner */
+.usage-banner {
+  background: rgba(52, 211, 153, 0.05);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 6px;
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+}
+.usage-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.usage-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.usage-cost {
+  color: #34d399;
+  font-size: 14px;
+}
+
 /* Trace Link Banner */
 .trace-banner {
   background: rgba(88, 166, 255, 0.08);
@@ -839,6 +987,172 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
   transform: translateY(0);
 }
 
+/* Export Modal Dialog */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.82);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+.modal-overlay.hidden {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+}
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 920px;
+  max-width: 94vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  animation: modalPop 0.15s ease-out;
+}
+@keyframes modalPop {
+  from { transform: scale(0.97); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.modal-header {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #11151c;
+}
+.modal-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-subtitle {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.modal-body {
+  padding: 16px 18px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal-config-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #11151c;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+.config-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.config-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 90px;
+}
+.toggle-chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.toggle-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.toggle-chip.active {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.preview-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+}
+.markdown-textarea {
+  width: 100%;
+  height: 320px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: #0d1117;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.markdown-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.markdown-preview-rendered {
+  width: 100%;
+  height: 320px;
+  background: #0d1117;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.modal-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #11151c;
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -901,14 +1215,108 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
 
 <div id="toast" class="toast">Path copied to clipboard</div>
 
+<!-- Markdown Export Modal -->
+<div id="exportModal" class="modal-overlay hidden" onclick="handleModalOverlayClick(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <h3 class="modal-title">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          Export Markdown Report
+        </h3>
+        <span class="modal-subtitle" id="exportModalSubtitle">Customize details to render and copy</span>
+      </div>
+      <button class="btn-icon" onclick="closeExportModal()" title="Close (Esc)">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Dynamic Configuration Controls -->
+      <div class="modal-config-bar" id="modalConfigBar"></div>
+
+      <!-- Preview Tabs -->
+      <div class="preview-tabs">
+        <button id="tabBtnMarkdown" class="tab-btn active" onclick="switchExportTab('markdown')">Raw Markdown</button>
+        <button id="tabBtnRendered" class="tab-btn" onclick="switchExportTab('rendered')">Rendered Preview</button>
+      </div>
+
+      <!-- Preview Container -->
+      <div class="preview-container">
+        <textarea id="exportMarkdownSource" class="markdown-textarea" readonly spellcheck="false" placeholder="Generating markdown..."></textarea>
+        <div id="exportRenderedPreview" class="markdown-preview-rendered notes-body" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div style="font-size:11.5px;color:var(--text-dim);" id="exportStatsText"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeExportModal()">Close</button>
+        <button class="btn btn-primary" onclick="copyExportMarkdown()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          Copy Markdown
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+const STANDARD_CAPABILITIES = ['code_execution', 'file_write', 'file_read', 'intent', 'aslr_leak'];
+const CAPABILITY_META = {
+  'code_execution': { title: 'Code Exec', weight: 1.0 },
+  'file_write': { title: 'File Write', weight: 0.30 },
+  'file_read': { title: 'File Read', weight: 0.25 },
+  'intent': { title: 'Intent', weight: 0.20 },
+  'aslr_leak': { title: 'ASLR Leak', weight: 0.15 },
+};
+
 let currentTree = [];
 let selectedRunPath = null;
 let currentRunDetail = null;
 
 // On load
+function getRunPathFromUrl() {
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/runs/')) {
+    const sub = pathname.slice(6);
+    if (sub) return decodeURIComponent(sub);
+  }
+  const params = new URLSearchParams(window.location.search);
+  const qRun = params.get('run');
+  if (qRun) return decodeURIComponent(qRun);
+
+  if (window.location.hash) {
+    let hash = window.location.hash.slice(1);
+    if (hash.startsWith('/runs/')) hash = hash.slice(6);
+    else if (hash.startsWith('/')) hash = hash.slice(1);
+    if (hash) return decodeURIComponent(hash);
+  }
+  return null;
+}
+
+// On load
 window.addEventListener('DOMContentLoaded', () => {
   refreshTree();
+});
+
+// Browser back/forward navigation
+window.addEventListener('popstate', (event) => {
+  const path = (event.state && event.state.runPath) || getRunPathFromUrl();
+  if (path) {
+    loadRun(path, 'none');
+  } else {
+    selectedRunPath = null;
+    document.getElementById('emptyView').style.display = 'flex';
+    document.getElementById('runContent').style.display = 'none';
+    document.querySelectorAll('.tree-run-item').forEach(item => item.classList.remove('active'));
+    document.title = 'android-bench Results Viewer';
+  }
 });
 
 async function refreshTree() {
@@ -917,13 +1325,17 @@ async function refreshTree() {
     const data = await res.json();
     currentTree = data.items || [];
     renderTree(currentTree);
-    if (selectedRunPath) {
-      loadRun(selectedRunPath);
+
+    const urlRunPath = getRunPathFromUrl();
+    if (urlRunPath) {
+      loadRun(urlRunPath, 'none');
+    } else if (selectedRunPath) {
+      loadRun(selectedRunPath, 'none');
     } else if (currentTree.length > 0) {
-      // Auto-select first run if available
+      // Auto-select first run if on root, using replaceState to avoid history trap
       const firstRun = findFirstRun(currentTree);
       if (firstRun) {
-        loadRun(firstRun.path);
+        loadRun(firstRun.path, 'replace');
       }
     }
   } catch (err) {
@@ -1009,7 +1421,7 @@ function renderTree(nodes, container = document.getElementById('treeContainer'),
       `;
 
       runDiv.onclick = () => {
-        loadRun(node.path);
+        loadRun(node.path, 'push');
       };
 
       container.appendChild(runDiv);
@@ -1026,11 +1438,36 @@ function filterTree() {
   });
 }
 
-async function loadRun(path) {
+async function loadRun(path, historyMode = 'push') {
   selectedRunPath = path;
-  // Update active state in sidebar
+
+  // Update browser URL
+  const targetUrl = `/runs/${encodeURI(path)}`;
+  if (historyMode === 'push') {
+    if (window.location.pathname !== targetUrl) {
+      history.pushState({ runPath: path }, '', targetUrl);
+    }
+  } else if (historyMode === 'replace') {
+    history.replaceState({ runPath: path }, '', targetUrl);
+  }
+
+  // Update active state in sidebar and expand parent folders
   document.querySelectorAll('.tree-run-item').forEach(item => {
-    item.classList.toggle('active', item.dataset.path === path);
+    const isActive = item.dataset.path === path;
+    item.classList.toggle('active', isActive);
+    if (isActive) {
+      let parent = item.closest('.tree-folder-children');
+      while (parent) {
+        parent.classList.remove('hidden');
+        const parentRow = parent.previousElementSibling;
+        if (parentRow) {
+          const chev = parentRow.querySelector('.tree-chevron');
+          if (chev) chev.classList.add('expanded');
+        }
+        parent = parent.parentElement ? parent.parentElement.closest('.tree-folder-children') : null;
+      }
+      item.scrollIntoView({ block: 'nearest' });
+    }
   });
 
   try {
@@ -1053,10 +1490,93 @@ function formatDuration(seconds) {
   return `${s}s`;
 }
 
+function parseTokenUsage(tu) {
+  if (!tu || typeof tu !== 'object') return null;
+  const input = Number(tu.input_tokens || tu.input || 0);
+  const output = Number(tu.output_tokens || tu.output || 0);
+  const cacheRead = Number(tu.cache_read_tokens || tu.cache_read || 0);
+  const cacheWrite = Number(tu.cache_write_tokens || tu.cache_write || 0);
+  const reasoning = Number(tu.reasoning_tokens || tu.reasoning || 0);
+  const total = Number(tu.total_tokens || (input + output));
+  const model = tu.model || '';
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    reasoning,
+    total,
+    model,
+    hasTokens: (input + output + cacheRead + cacheWrite + reasoning) > 0,
+  };
+}
+
+function renderUsageBanner(costUsd, tokenUsage, title) {
+  const tu = parseTokenUsage(tokenUsage);
+  const hasCost = costUsd !== null && costUsd !== undefined;
+  const hasTokens = tu && tu.hasTokens;
+
+  if (!hasCost && !hasTokens) return '';
+
+  return `
+    <div class="usage-banner">
+      ${hasCost ? `
+        <div class="usage-item">
+          <span class="usage-label">${title ? 'Total Cost' : 'Cost'}</span>
+          <span class="usage-value usage-cost">$${Number(costUsd).toFixed(4)}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.total > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Total Tokens</span>
+          <span class="usage-value">${tu.total.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.input > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Input Tokens</span>
+          <span class="usage-value">${tu.input.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.output > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Output Tokens</span>
+          <span class="usage-value">${tu.output.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.cacheRead > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Cache Read</span>
+          <span class="usage-value">${tu.cacheRead.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.cacheWrite > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Cache Write</span>
+          <span class="usage-value">${tu.cacheWrite.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.reasoning > 0 ? `
+        <div class="usage-item">
+          <span class="usage-label">Reasoning</span>
+          <span class="usage-value">${tu.reasoning.toLocaleString()}</span>
+        </div>
+      ` : ''}
+      ${tu && tu.model ? `
+        <div class="usage-item">
+          <span class="usage-label">Model</span>
+          <span class="usage-value" style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);">${escapeHtml(tu.model)}</span>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
 function renderRunDetail(run) {
   document.getElementById('emptyView').style.display = 'none';
   const content = document.getElementById('runContent');
   content.style.display = 'flex';
+  document.title = `${run.display_name || run.folder_name} - android-bench Results`;
 
   const scoreNum = run.score || 0.0;
   const scorePct = Math.round(scoreNum * 100);
@@ -1070,9 +1590,9 @@ function renderRunDetail(run) {
       <div class="notes-card">
         <div class="notes-header">
           <span>📝 Run Notes (NOTES.md)</span>
-          <button class="btn btn-sm" onclick="copyText(${JSON.stringify(run.notes)}, 'Notes copied')">Copy Notes</button>
+          <button class="btn btn-sm" onclick="copyText(${JSON.stringify(run.notes)}, 'Notes copied')">Copy Raw Notes</button>
         </div>
-        <div class="notes-body">${escapeHtml(run.notes)}</div>
+        <div class="notes-body">${renderMarkdown(run.notes)}</div>
       </div>
     `;
   }
@@ -1088,15 +1608,6 @@ function renderRunDetail(run) {
   if (cfg.time_limit) tags.push(`<span class="tag-item">Timeout: <strong>${formatDuration(cfg.time_limit)}</strong></span>`);
 
   // Overview Table
-  const STANDARD_CAPABILITIES = ['code_execution', 'file_write', 'file_read', 'intent', 'aslr_leak'];
-  const CAPABILITY_META = {
-    'code_execution': { title: 'Code Exec', weight: 1.0 },
-    'file_write': { title: 'File Write', weight: 0.30 },
-    'file_read': { title: 'File Read', weight: 0.25 },
-    'intent': { title: 'Intent', weight: 0.20 },
-    'aslr_leak': { title: 'ASLR Leak', weight: 0.15 },
-  };
-
   const hasStandard = (run.challenges || []).some(ch => {
     const chCaps = [
       ...(ch.enabled_capabilities || []),
@@ -1183,7 +1694,7 @@ function renderRunDetail(run) {
       }
 
       overviewRowsHtml += `
-        <tr onclick="jumpToChallenge('${escapeHtml(ch.name)}')" style="cursor:pointer;" title="Click to view details for ${escapeHtml(ch.name)}">
+        <tr data-challenge="${escapeHtml(ch.name)}" onclick="jumpToChallenge(this.dataset.challenge)" style="cursor:pointer;" title="Click to view details for ${escapeHtml(ch.name)}">
           <td>
             <div style="font-weight:600;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;">
               <span>${escapeHtml(ch.name)}</span>
@@ -1195,9 +1706,12 @@ function renderRunDetail(run) {
             <span class="pill pill-score ${chScoreClass} pill-sm">${chScore.toFixed(3)}</span>
             <div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">${formatDuration(ch.runtime)}</div>
           </td>
+          <td style="text-align:center;">
+            ${ch.cost_usd != null ? `<span class="pill pill-sm" style="background:rgba(52,211,153,0.15);color:#34d399;font-weight:600;">$${ch.cost_usd.toFixed(4)}</span>` : '<span style="color:var(--text-dim);font-size:12px;">-</span>'}
+          </td>
           ${cellsHtml}
           <td style="text-align:right;">
-            <button class="btn btn-sm" onclick="event.stopPropagation(); jumpToChallenge('${escapeHtml(ch.name)}')" style="padding:2px 8px;font-size:11px;">
+            <button class="btn btn-sm" data-challenge="${escapeHtml(ch.name)}" onclick="event.stopPropagation(); jumpToChallenge(this.dataset.challenge)" style="padding:2px 8px;font-size:11px;">
               View ▾
             </button>
           </td>
@@ -1220,6 +1734,7 @@ function renderRunDetail(run) {
             <tr>
               <th style="min-width:180px;">Challenge</th>
               <th style="text-align:center;min-width:100px;">Total Score</th>
+              <th style="text-align:center;min-width:90px;">Cost</th>
               ${tableCaps.map(c => {
                 const meta = CAPABILITY_META[c] || { title: c, weight: null };
                 return `
@@ -1269,9 +1784,9 @@ function renderRunDetail(run) {
     if (ch.attempts && ch.attempts.length > 0) {
       attemptsHtml = `
         <div class="attempts-section">
-          <div class="attempt-tabs" id="tabs-${ch.name}">
+          <div class="attempt-tabs" id="tabs-${escapeHtml(ch.name)}">
             ${ch.attempts.map((att, idx) => `
-              <button class="tab-btn ${idx === ch.attempts.length - 1 ? 'active' : ''}" onclick="switchAttemptTab('${ch.name}', ${att.attempt})">
+              <button class="tab-btn ${idx === ch.attempts.length - 1 ? 'active' : ''}" data-challenge="${escapeHtml(ch.name)}" data-attempt="${att.attempt}" onclick="switchAttemptTab(this.dataset.challenge, parseInt(this.dataset.attempt))">
                 Attempt ${att.attempt}${idx === ch.attempts.length - 1 ? ' (Latest)' : ''}
               </button>
             `).join('')}
@@ -1282,21 +1797,23 @@ function renderRunDetail(run) {
     }
 
     challengesHtml += `
-      <div class="challenge-card" id="card-${ch.name}">
-        <div class="challenge-header" onclick="toggleChallengeBody('${ch.name}')">
+      <div class="challenge-card" id="card-${escapeHtml(ch.name)}">
+        <div class="challenge-header" data-challenge="${escapeHtml(ch.name)}" onclick="toggleChallengeBody(this.dataset.challenge)">
           <div class="challenge-info">
-            <span class="collapse-arrow" id="arrow-${ch.name}">▸</span>
+            <span class="collapse-arrow" id="arrow-${escapeHtml(ch.name)}">▸</span>
             <span class="challenge-name">${escapeHtml(ch.name)}</span>
             ${ch.package ? `<span class="challenge-pkg">${escapeHtml(ch.package)}</span>` : ''}
             <span class="pill pill-${ch.status} pill-sm">${ch.status}</span>
           </div>
           <div class="challenge-right">
             <span class="pill pill-score ${chScoreClass}">Score: ${chScore.toFixed(3)}</span>
+            ${ch.cost_usd != null ? `<span class="pill pill-sm" style="background:rgba(52,211,153,0.15);color:#34d399;font-weight:600;">$${ch.cost_usd.toFixed(4)}</span>` : ''}
             <span style="color:var(--text-dim);font-size:11px;">${formatDuration(ch.runtime)}</span>
-            <span class="btn btn-sm" id="btn-toggle-${ch.name}" style="padding:2px 8px;font-size:11px;">Details ▾</span>
+            <span class="btn btn-sm" id="btn-toggle-${escapeHtml(ch.name)}" style="padding:2px 8px;font-size:11px;">Details ▾</span>
           </div>
         </div>
-        <div class="challenge-body hidden" id="body-${ch.name}">
+        <div class="challenge-body hidden" id="body-${escapeHtml(ch.name)}">
+          ${renderUsageBanner(ch.cost_usd, ch.token_usage)}
           ${traceHtml}
           ${attemptsHtml}
         </div>
@@ -1318,6 +1835,7 @@ function renderRunDetail(run) {
           <div class="run-meta-row">
             <span>Started: <strong>${escapeHtml(run.started_at)}</strong></span>
             <span>Total Runtime: <strong>${formatDuration(run.total_runtime)}</strong></span>
+            ${run.cost_usd != null ? `<span>Cost: <strong style="color:#34d399;">$${run.cost_usd.toFixed(4)}</strong></span>` : ''}
             <span>Path: <code style="font-size:11px;color:var(--accent);">${escapeHtml(run.full_path)}</code></span>
           </div>
         </div>
@@ -1325,6 +1843,28 @@ function renderRunDetail(run) {
           <span class="pill pill-score ${scoreClass}" style="font-size:14px;padding:4px 10px;">
             Score: ${scoreNum.toFixed(4)} (${scorePct}%)
           </span>
+          ${run.cost_usd != null ? `
+          <span class="pill pill-score" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,0.15);color:#34d399;border:1px solid rgba(52,211,153,0.3);">
+            Total Cost: $${run.cost_usd.toFixed(4)}
+          </span>
+          ` : ''}
+          <button class="btn btn-primary" onclick="openExportModal()" title="Export results as Markdown">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            Export Markdown
+          </button>
+          <button class="btn" onclick="copyCurrentLink()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Copy Link
+          </button>
           <button class="btn" onclick="copyText(${JSON.stringify(run.full_path)}, 'Results path copied')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -1336,6 +1876,7 @@ function renderRunDetail(run) {
       </div>
 
       ${tags.length > 0 ? `<div class="run-tags">${tags.join('')}</div>` : ''}
+      ${renderUsageBanner(run.cost_usd, run.token_usage, true)}
     </div>
 
     <!-- Notes Section -->
@@ -1563,6 +2104,10 @@ function toggleCollapse(headerEl) {
   }
 }
 
+function copyCurrentLink() {
+  copyText(window.location.href, 'Run URL copied to clipboard');
+}
+
 function copyText(text, message) {
   navigator.clipboard.writeText(text).then(() => {
     showToast(message || 'Copied to clipboard');
@@ -1587,6 +2132,128 @@ function showToast(msg) {
   }, 2200);
 }
 
+function renderMarkdown(mdText) {
+  if (!mdText) return '';
+  if (window.marked && typeof window.marked.parse === 'function') {
+    try {
+      const rawHtml = window.marked.parse(mdText, { gfm: true, breaks: true });
+      if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+        return window.DOMPurify.sanitize(rawHtml);
+      }
+      return rawHtml;
+    } catch (e) {
+      console.warn('Failed to parse markdown with marked:', e);
+    }
+  }
+  return fallbackMarkdown(mdText);
+}
+
+function fallbackMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const html = [];
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+  let inOList = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Fenced code block toggle
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        if (inList) { html.push('</ul>'); inList = false; }
+        if (inOList) { html.push('</ol>'); inOList = false; }
+        codeLines = [];
+        inCode = true;
+      }
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    // Unordered list item
+    const uListMatch = line.match(/^(\s*)[-*+]\s+(.*)$/);
+    if (uListMatch) {
+      if (inOList) { html.push('</ol>'); inOList = false; }
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${inlineMarkdown(uListMatch[2])}</li>`);
+      continue;
+    } else if (inList) {
+      html.push('</ul>');
+      inList = false;
+    }
+
+    // Ordered list item
+    const oListMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+    if (oListMatch) {
+      if (inList) { html.push('</ul>'); inList = false; }
+      if (!inOList) { html.push('<ol>'); inOList = true; }
+      html.push(`<li>${inlineMarkdown(oListMatch[2])}</li>`);
+      continue;
+    } else if (inOList) {
+      html.push('</ol>');
+      inOList = false;
+    }
+
+    // Headings
+    if (line.startsWith('#### ')) {
+      html.push(`<h4>${inlineMarkdown(line.slice(5))}</h4>`);
+    } else if (line.startsWith('### ')) {
+      html.push(`<h3>${inlineMarkdown(line.slice(4))}</h3>`);
+    } else if (line.startsWith('## ')) {
+      html.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`);
+    } else if (line.startsWith('# ')) {
+      html.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`);
+    } else if (line.trim() === '---' || line.trim() === '***') {
+      html.push('<hr>');
+    } else if (line.startsWith('> ')) {
+      html.push(`<blockquote><p>${inlineMarkdown(line.slice(2))}</p></blockquote>`);
+    } else if (line.trim() === '') {
+      // Empty line - ignore or paragraph break
+    } else {
+      html.push(`<p>${inlineMarkdown(line)}</p>`);
+    }
+  }
+
+  if (inCode) {
+    html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  }
+  if (inList) {
+    html.push('</ul>');
+  }
+  if (inOList) {
+    html.push('</ol>');
+  }
+
+  return html.join('\n');
+}
+
+function inlineMarkdown(text) {
+  let s = escapeHtml(text);
+  // Bold: **text** or __text__
+  s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__(.*?)__/g, '<strong>$1</strong>');
+  // Italic: *text* or _text_
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  s = s.replace(/_([^_]+)_/g, '<em>$1</em>');
+  // Strikethrough: ~~text~~
+  s = s.replace(/~~(.*?)~~/g, '<del>$1</del>');
+  // Inline code: `text`
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Markdown links: [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s;
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -1595,6 +2262,403 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ==========================================
+// Markdown Export Modal Logic
+// ==========================================
+let exportConfig = {
+  sections: {
+    header: true,
+    notes: true,
+    table: true,
+    tokens: true,
+  },
+  columns: {
+    status: true,
+    score: true,
+    cost: true,
+    runtime: true,
+    trace: false,
+  },
+  capabilities: {},
+  activeTab: 'markdown',
+};
+
+function initExportConfigForRun(run) {
+  if (!run) return;
+  exportConfig.sections.header = true;
+  exportConfig.sections.notes = Boolean(run.notes && run.notes.trim());
+  exportConfig.sections.table = Boolean(run.challenges && run.challenges.length > 0);
+  exportConfig.sections.tokens = Boolean(run.token_usage && Object.keys(run.token_usage).length > 0);
+
+  const anyCost = (run.challenges || []).some(ch => ch.cost_usd != null) || run.cost_usd != null;
+  exportConfig.columns.status = true;
+  exportConfig.columns.score = true;
+  exportConfig.columns.cost = anyCost;
+  exportConfig.columns.runtime = true;
+  exportConfig.columns.trace = false;
+
+  const caps = getRunCapabilities(run);
+  exportConfig.capabilities = {};
+  for (const c of caps) {
+    exportConfig.capabilities[c] = true;
+  }
+}
+
+function getRunCapabilities(run) {
+  if (!run || !run.challenges) return [];
+  const capsSet = new Set();
+  for (const ch of run.challenges) {
+    if (ch.enabled_capabilities) {
+      for (const c of ch.enabled_capabilities) capsSet.add(c);
+    }
+    if (ch.axes) {
+      for (const k of Object.keys(ch.axes)) capsSet.add(k);
+    }
+  }
+  const ordered = [];
+  for (const c of STANDARD_CAPABILITIES) {
+    if (capsSet.has(c)) ordered.push(c);
+  }
+  for (const c of Array.from(capsSet).sort()) {
+    if (!ordered.includes(c)) ordered.push(c);
+  }
+  return ordered;
+}
+
+function getCapTitle(c) {
+  return (CAPABILITY_META[c] && CAPABILITY_META[c].title) || c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function openExportModal() {
+  if (!currentRunDetail) {
+    showToast('No run selected to export');
+    return;
+  }
+  initExportConfigForRun(currentRunDetail);
+  const subtitle = document.getElementById('exportModalSubtitle');
+  if (subtitle) {
+    subtitle.textContent = `${currentRunDetail.display_name || currentRunDetail.folder_name}`;
+  }
+  renderExportConfigBar();
+  switchExportTab(exportConfig.activeTab || 'markdown');
+  updateExportPreview();
+
+  const modal = document.getElementById('exportModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeExportModal() {
+  const modal = document.getElementById('exportModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function handleModalOverlayClick(e) {
+  if (e.target && e.target.id === 'exportModal') {
+    closeExportModal();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('exportModal');
+    if (modal && !modal.classList.contains('hidden')) {
+      closeExportModal();
+    }
+  }
+});
+
+function toggleExportSection(secKey) {
+  exportConfig.sections[secKey] = !exportConfig.sections[secKey];
+  renderExportConfigBar();
+  updateExportPreview();
+}
+
+function toggleExportColumn(colKey) {
+  exportConfig.columns[colKey] = !exportConfig.columns[colKey];
+  renderExportConfigBar();
+  updateExportPreview();
+}
+
+function toggleExportCap(capKey) {
+  exportConfig.capabilities[capKey] = !exportConfig.capabilities[capKey];
+  renderExportConfigBar();
+  updateExportPreview();
+}
+
+function renderExportConfigBar() {
+  const bar = document.getElementById('modalConfigBar');
+  if (!bar || !currentRunDetail) return;
+
+  const run = currentRunDetail;
+  const hasNotes = Boolean(run.notes && run.notes.trim());
+  const hasTokens = Boolean(run.token_usage && Object.keys(run.token_usage).length > 0);
+  const runCaps = getRunCapabilities(run);
+
+  let html = `
+    <div class="config-group">
+      <span class="config-group-label">Sections:</span>
+      <button class="toggle-chip ${exportConfig.sections.header ? 'active' : ''}" onclick="toggleExportSection('header')">
+        ${exportConfig.sections.header ? '✓ ' : ''}Header &amp; Summary
+      </button>
+      ${hasNotes ? `
+        <button class="toggle-chip ${exportConfig.sections.notes ? 'active' : ''}" onclick="toggleExportSection('notes')">
+          ${exportConfig.sections.notes ? '✓ ' : ''}Notes
+        </button>
+      ` : ''}
+      <button class="toggle-chip ${exportConfig.sections.table ? 'active' : ''}" onclick="toggleExportSection('table')">
+        ${exportConfig.sections.table ? '✓ ' : ''}Results Table
+      </button>
+      ${hasTokens ? `
+        <button class="toggle-chip ${exportConfig.sections.tokens ? 'active' : ''}" onclick="toggleExportSection('tokens')">
+          ${exportConfig.sections.tokens ? '✓ ' : ''}Token Metrics
+        </button>
+      ` : ''}
+    </div>
+  `;
+
+  if (exportConfig.sections.table) {
+    html += `
+      <div class="config-group" style="padding-top:4px;border-top:1px solid rgba(255,255,255,0.05);">
+        <span class="config-group-label">Columns:</span>
+        <button class="toggle-chip ${exportConfig.columns.status ? 'active' : ''}" onclick="toggleExportColumn('status')">
+          ${exportConfig.columns.status ? '✓ ' : ''}Status
+        </button>
+        <button class="toggle-chip ${exportConfig.columns.score ? 'active' : ''}" onclick="toggleExportColumn('score')">
+          ${exportConfig.columns.score ? '✓ ' : ''}Score
+        </button>
+        <button class="toggle-chip ${exportConfig.columns.cost ? 'active' : ''}" onclick="toggleExportColumn('cost')">
+          ${exportConfig.columns.cost ? '✓ ' : ''}Cost
+        </button>
+        <button class="toggle-chip ${exportConfig.columns.runtime ? 'active' : ''}" onclick="toggleExportColumn('runtime')">
+          ${exportConfig.columns.runtime ? '✓ ' : ''}Runtime
+        </button>
+        <button class="toggle-chip ${exportConfig.columns.trace ? 'active' : ''}" onclick="toggleExportColumn('trace')">
+          ${exportConfig.columns.trace ? '✓ ' : ''}Trace Link
+        </button>
+      </div>
+    `;
+
+    if (runCaps.length > 0) {
+      html += `
+        <div class="config-group" style="padding-top:4px;border-top:1px solid rgba(255,255,255,0.05);">
+          <span class="config-group-label">Capabilities:</span>
+          ${runCaps.map(c => `
+            <button class="toggle-chip ${exportConfig.capabilities[c] ? 'active' : ''}" onclick="toggleExportCap(${JSON.stringify(c)})">
+              ${exportConfig.capabilities[c] ? '✓ ' : ''}${escapeHtml(getCapTitle(c))}
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+  }
+
+  bar.innerHTML = html;
+}
+
+function switchExportTab(tabName) {
+  exportConfig.activeTab = tabName;
+  const btnMd = document.getElementById('tabBtnMarkdown');
+  const btnRendered = document.getElementById('tabBtnRendered');
+  const textarea = document.getElementById('exportMarkdownSource');
+  const rendered = document.getElementById('exportRenderedPreview');
+
+  if (tabName === 'markdown') {
+    if (btnMd) btnMd.classList.add('active');
+    if (btnRendered) btnRendered.classList.remove('active');
+    if (textarea) textarea.style.display = 'block';
+    if (rendered) rendered.style.display = 'none';
+  } else {
+    if (btnMd) btnMd.classList.remove('active');
+    if (btnRendered) btnRendered.classList.add('active');
+    if (textarea) textarea.style.display = 'none';
+    if (rendered) rendered.style.display = 'block';
+  }
+}
+
+function generateMarkdownReport(run, config) {
+  if (!run) return '';
+  const lines = [];
+
+  // 1. Header Section
+  if (config.sections.header) {
+    const title = run.display_name || run.folder_name;
+    lines.push(`# Benchmark Results: ${title}`);
+    lines.push('');
+    if (run.started_at) lines.push(`- **Started:** ${run.started_at}`);
+    const scoreNum = run.score || 0.0;
+    const scorePct = Math.round(scoreNum * 100);
+    lines.push(`- **Score:** ${scoreNum.toFixed(4)} (${scorePct}%)`);
+    if (run.cost_usd != null) lines.push(`- **Total Cost:** $${run.cost_usd.toFixed(4)}`);
+    if (run.total_runtime) lines.push(`- **Total Runtime:** ${formatDuration(run.total_runtime)}`);
+    if (run.config) {
+      const cfg = run.config;
+      if (cfg.model) lines.push(`- **Model:** ${cfg.model}${cfg.model_effort ? ' (' + cfg.model_effort + ')' : ''}`);
+      if (cfg.harness) lines.push(`- **Harness:** ${cfg.harness}`);
+      if (cfg.num_instances) lines.push(`- **Instances:** ${cfg.num_instances}`);
+      if (cfg.max_reprompts !== undefined && cfg.max_reprompts !== null) lines.push(`- **Max Reprompts:** ${cfg.max_reprompts}`);
+      if (cfg.internet_enabled) lines.push(`- **Internet:** Enabled`);
+      if (cfg.time_limit) lines.push(`- **Timeout:** ${formatDuration(cfg.time_limit)}`);
+    }
+    if (run.full_path) lines.push(`- **Path:** \`${run.full_path}\``);
+    lines.push('');
+  }
+
+  // 2. Notes Section
+  if (config.sections.notes && run.notes && run.notes.trim()) {
+    lines.push('## Notes');
+    lines.push('');
+    lines.push(run.notes.trim());
+    lines.push('');
+  }
+
+  // 3. Results Table Section
+  if (config.sections.table && run.challenges && run.challenges.length > 0) {
+    lines.push('## Results Summary');
+    lines.push('');
+
+    // Table Headers
+    const headers = ['Challenge'];
+    const aligns = [':---'];
+
+    if (config.columns.status) {
+      headers.push('Status');
+      aligns.push(':---:');
+    }
+    if (config.columns.score) {
+      headers.push('Score');
+      aligns.push(':---:');
+    }
+    if (config.columns.cost) {
+      headers.push('Cost');
+      aligns.push(':---:');
+    }
+    if (config.columns.runtime) {
+      headers.push('Runtime');
+      aligns.push(':---:');
+    }
+
+    const runCaps = getRunCapabilities(run);
+    const activeCaps = runCaps.filter(c => config.capabilities[c]);
+    for (const c of activeCaps) {
+      headers.push(getCapTitle(c));
+      aligns.push(':---:');
+    }
+
+    if (config.columns.trace) {
+      headers.push('Trace');
+      aligns.push(':---:');
+    }
+
+    lines.push(`| ${headers.join(' | ')} |`);
+    lines.push(`| ${aligns.join(' | ')} |`);
+
+    for (const ch of run.challenges) {
+      const row = [];
+      let nameCell = ch.name;
+      if (ch.package) nameCell += ` (\`${ch.package}\`)`;
+      row.push(nameCell);
+
+      if (config.columns.status) {
+        row.push(ch.status || 'completed');
+      }
+      if (config.columns.score) {
+        const sc = ch.score || 0.0;
+        row.push(sc.toFixed(3));
+      }
+      if (config.columns.cost) {
+        row.push(ch.cost_usd != null ? `$${ch.cost_usd.toFixed(4)}` : '-');
+      }
+      if (config.columns.runtime) {
+        row.push(formatDuration(ch.runtime));
+      }
+
+      const latestAtt = (ch.attempts && ch.attempts.length > 0) ? ch.attempts[ch.attempts.length - 1] : null;
+      for (const capName of activeCaps) {
+        const isConfigured = (ch.enabled_capabilities && ch.enabled_capabilities.includes(capName))
+          || (ch.axes && ch.axes[capName] !== undefined);
+        const capDetail = (latestAtt && latestAtt.capabilities) ? latestAtt.capabilities[capName] : null;
+        const isAttempted = capDetail ? (capDetail.attempted !== false) : (ch.axes && (ch.axes[capName] !== undefined && ch.axes[capName] > 0));
+
+        if (!isConfigured) {
+          row.push('-');
+        } else if (!isAttempted) {
+          row.push('UNATTEMPTED');
+        } else {
+          const capScore = capDetail ? capDetail.score : ((ch.axes && ch.axes[capName] !== undefined) ? ch.axes[capName] : 0.0);
+          const meta = (typeof CAPABILITY_META !== 'undefined' && CAPABILITY_META[capName]) ? CAPABILITY_META[capName] : null;
+          const capWeight = (capDetail && capDetail.weight > 0) ? capDetail.weight : (meta ? meta.weight : 0.0);
+          if (capWeight > 0) {
+            row.push(`${capScore.toFixed(2)} / ${capWeight.toFixed(2)}`);
+          } else {
+            row.push(`${capScore.toFixed(2)}`);
+          }
+        }
+      }
+
+      if (config.columns.trace) {
+        if (ch.trace_url) {
+          row.push(`[Trace](${ch.trace_url})`);
+        } else if (ch.session_id) {
+          row.push(`\`${ch.session_id.substring(0, 8)}...\``);
+        } else {
+          row.push('-');
+        }
+      }
+
+      lines.push(`| ${row.join(' | ')} |`);
+    }
+    lines.push('');
+  }
+
+  // 4. Token Usage Section
+  if (config.sections.tokens) {
+    const tu = parseTokenUsage(run.token_usage);
+    if (tu && tu.hasTokens) {
+      lines.push('## Token Usage Summary');
+      lines.push('');
+      if (tu.total > 0) lines.push(`- **Total Tokens:** ${tu.total.toLocaleString()}`);
+      if (tu.input > 0) lines.push(`- **Input Tokens:** ${tu.input.toLocaleString()}`);
+      if (tu.output > 0) lines.push(`- **Output Tokens:** ${tu.output.toLocaleString()}`);
+      if (tu.cacheRead > 0) lines.push(`- **Cache Read Tokens:** ${tu.cacheRead.toLocaleString()}`);
+      if (tu.cacheWrite > 0) lines.push(`- **Cache Write Tokens:** ${tu.cacheWrite.toLocaleString()}`);
+      if (tu.reasoning > 0) lines.push(`- **Reasoning Tokens:** ${tu.reasoning.toLocaleString()}`);
+      if (tu.model) lines.push(`- **Model:** \`${tu.model}\``);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function updateExportPreview() {
+  if (!currentRunDetail) return;
+  const md = generateMarkdownReport(currentRunDetail, exportConfig);
+
+  const textarea = document.getElementById('exportMarkdownSource');
+  if (textarea) textarea.value = md;
+
+  const rendered = document.getElementById('exportRenderedPreview');
+  if (rendered) {
+    rendered.innerHTML = renderMarkdown(md);
+  }
+
+  const stats = document.getElementById('exportStatsText');
+  if (stats) {
+    const chCount = (currentRunDetail.challenges || []).length;
+    const activeCaps = Object.values(exportConfig.capabilities).filter(Boolean).length;
+    stats.textContent = `${chCount} challenge${chCount === 1 ? '' : 's'} • ${activeCaps} capability column${activeCaps === 1 ? '' : 's'} active`;
+  }
+}
+
+function copyExportMarkdown() {
+  const textarea = document.getElementById('exportMarkdownSource');
+  if (!textarea || !textarea.value) {
+    showToast('Nothing to copy');
+    return;
+  }
+  copyText(textarea.value, 'Markdown report copied to clipboard');
 }
 </script>
 </body>

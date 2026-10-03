@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 import uvicorn
 
@@ -17,6 +17,8 @@ from android_bench.web.static_html import HTML_CONTENT
 
 logger = logging.getLogger(__name__)
 
+STATIC_DIR = (Path(__file__).parent / "static").resolve()
+
 
 def create_app(results_dir: Path) -> FastAPI:
     """Create FastAPI application for android-bench results viewer."""
@@ -24,8 +26,21 @@ def create_app(results_dir: Path) -> FastAPI:
     app = FastAPI(title="android-bench Results Viewer")
 
     @app.get("/", response_class=HTMLResponse)
-    async def index() -> HTMLResponse:
+    @app.get("/runs/{run_path:path}", response_class=HTMLResponse)
+    async def index(run_path: str = "") -> HTMLResponse:
         return HTMLResponse(content=HTML_CONTENT)
+
+    @app.get("/static/{filename}")
+    def get_static_file(filename: str) -> Response:
+        file_path = (STATIC_DIR / filename).resolve()
+        if not file_path.is_relative_to(STATIC_DIR) or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        content_type = "application/javascript" if filename.endswith(".js") else "text/plain"
+        return Response(
+            content=file_path.read_bytes(),
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     @app.get("/api/config", response_model=WebConfigResponse)
     def get_config() -> WebConfigResponse:

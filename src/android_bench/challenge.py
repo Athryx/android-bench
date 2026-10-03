@@ -26,8 +26,19 @@ from android_bench.models import (
     FloatScore,
     calculate_scores,
 )
+from android_bench.trace import TranscriptParser
 
 logger = logging.getLogger(__name__)
+
+
+def _salvage_response(agent: object) -> str:
+    parser = TranscriptParser.from_agent(agent)
+    if parser is not None:
+        try:
+            return parser.get_final_response()
+        except Exception:
+            pass
+    return ""
 
 
 
@@ -308,16 +319,7 @@ disclose for each:
                     except LimitExceeded as exc:
                         limit_exceeded_msg = str(exc)
                         logger.warning("Challenge '%s': initial agent run exceeded limit: %s", self.name, limit_exceeded_msg)
-                        history_path = getattr(instance.agent, "history_path", None)
-                        if history_path and Path(history_path).is_file():
-                            try:
-                                from android_bench.runner import extract_final_response
-
-                                response = extract_final_response(Path(history_path))
-                            except Exception:
-                                response = ""
-                        else:
-                            response = ""
+                        response = _salvage_response(instance.agent)
                 elif attempts:
                     last_record = attempts[-1]
                     if not last_record.issue_capabilities:
@@ -337,16 +339,7 @@ disclose for each:
                     except LimitExceeded as exc:
                         limit_exceeded_msg = str(exc)
                         logger.warning("Challenge '%s': reprompt agent run exceeded limit: %s", self.name, limit_exceeded_msg)
-                        history_path = getattr(instance.agent, "history_path", None)
-                        if history_path and Path(history_path).is_file():
-                            try:
-                                from android_bench.runner import extract_final_response
-
-                                response = extract_final_response(Path(history_path))
-                            except Exception:
-                                response = ""
-                        else:
-                            response = ""
+                        response = _salvage_response(instance.agent)
 
             for attempt_index in range(start_attempt_index, self.max_reprompts + 1):
                 _notify_progress("grading")
@@ -380,16 +373,7 @@ disclose for each:
                 except LimitExceeded as exc:
                     limit_exceeded_msg = str(exc)
                     logger.warning("Challenge '%s': reprompt agent run exceeded limit: %s", self.name, limit_exceeded_msg)
-                    history_path = getattr(instance.agent, "history_path", None)
-                    if history_path and Path(history_path).is_file():
-                        try:
-                            from android_bench.runner import extract_final_response
-
-                            response = extract_final_response(Path(history_path))
-                        except Exception:
-                            response = ""
-                    else:
-                        response = ""
+                    response = _salvage_response(instance.agent)
                     record = self.grade_solution(
                         instance,
                         response,

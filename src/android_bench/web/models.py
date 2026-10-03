@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -67,6 +67,8 @@ class ChallengeDetail(BaseModel):
     runtime: float = 0.0
     session_id: str | None = None
     trace_url: str | None = None
+    cost_usd: float | None = None
+    token_usage: dict[str, Any] | None = None
     axes: dict[str, float] = Field(default_factory=dict)
     enabled_capabilities: list[str] = Field(default_factory=list)
     attempts: list[AttemptDetail] = Field(default_factory=list)
@@ -101,6 +103,8 @@ class RunDetail(BaseModel):
     started_timestamp: float | None = None
     score: float = 0.0
     total_runtime: float = 0.0
+    cost_usd: float | None = None
+    token_usage: dict[str, Any] | None = None
     status: str = "completed"
     notes: str | None = None
     config: RunConfig = Field(default_factory=RunConfig)
