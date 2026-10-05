@@ -360,6 +360,14 @@ class AndroidChallengeResult(ChallengeResult):
     def overall_score(self) -> float:
         return float(self.score)
 
+    def append_attempt(self, attempt: AttemptRecord) -> None:
+        self.attempts.append(attempt)
+        overall, axes = calculate_scores(attempt)
+        self.score = FloatScore(overall)
+        self.axes = axes
+        if self.status != "running":
+            self.status = "completed"
+
     def model_dump_toml(self) -> str:
         return tomli_w.dumps(self.model_dump(mode="json", exclude_none=True, by_alias=False))
 
@@ -494,3 +502,59 @@ class TestGraderResult(BaseModel):
     @classmethod
     def model_validate_toml(cls, toml_str: str) -> Self:
         return cls.model_validate(tomllib.loads(toml_str))
+
+
+GraderResult = TestGraderResult
+
+
+class ResumeMode(StrEnum):
+    AUTO = "auto"
+    REGRADE = "regrade"
+    LAST_ATTEMPT = "last-attempt"
+    KEEP_GOING = "keep-going"
+    NONE = "none"
+
+
+class ChallengeResumeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge: str
+    mode: ResumeMode = ResumeMode.AUTO
+    attempts: int = 1
+
+    @model_validator(mode="after")
+    def validate_config(self) -> Self:
+        if self.mode != ResumeMode.NONE and self.attempts == 0 and self.mode != ResumeMode.REGRADE:
+            raise ValueError(f"attempts=0 is only allowed for mode='regrade' (challenge '{self.challenge}')")
+        return self
+
+    @classmethod
+    def parse(
+        cls,
+        spec: str,
+        default_mode: ResumeMode = ResumeMode.AUTO,
+        default_attempts: int = 1,
+    ) -> ChallengeResumeConfig:
+        parts = [p.strip() for p in spec.split(",") if p.strip()]
+        if not parts:
+            raise ValueError("Challenge spec cannot be empty")
+        name = parts[0]
+        mode = default_mode
+        attempts = default_attempts
+        for part in parts[1:]:
+            if "=" not in part:
+                raise ValueError(f"Invalid option '{part}' in challenge spec '{spec}' (expected key=value)")
+            key, val = [x.strip() for x in part.split("=", 1)]
+            if key == "mode":
+                try:
+                    mode = ResumeMode(val)
+                except ValueError:
+                    raise ValueError(f"Unknown mode '{val}' for challenge '{name}'. Valid modes: {[m.value for m in ResumeMode]}")
+            elif key == "attempts":
+                try:
+                    attempts = int(val)
+                except ValueError:
+                    raise ValueError(f"Invalid attempts value '{val}' for challenge '{name}' (must be an integer)")
+            else:
+                raise ValueError(f"Unknown option '{key}' in challenge spec '{spec}'")
+        return cls(challenge=name, mode=mode, attempts=attempts)

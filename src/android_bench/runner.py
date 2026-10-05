@@ -23,7 +23,7 @@ from kbench import (
 from kexploit_agent import AgentGroup, Limits, summarize_log
 from ksandbox import DockerSandboxProvider, MountInfo
 
-from android_bench.challenge import AndroidAppChallenge
+from android_bench.challenge import AndroidAppChallenge, KEEP_GOING_PROMPT
 from android_bench.grader import format_reprompt
 from android_bench.models import (
     AndroidBenchmarkResult,
@@ -31,8 +31,11 @@ from android_bench.models import (
     AndroidExploitScore,
     AttemptRecord,
     Capability,
+    ChallengeResumeConfig,
     ChallengeScore,
     FloatScore,
+    GraderResult,
+    ResumeMode,
     TestGraderResult,
     calculate_scores,
 )
@@ -287,7 +290,22 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
     return result
 
 
-def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
+def _attempt_sort_key(p: Path) -> int:
+    stem = p.stem
+    parts = stem.split("-")
+    if len(parts) >= 2 and parts[1].isdigit():
+        return int(parts[1])
+    return 0
+
+
+def resume_challenge(
+    state: GlobalRunState,
+    challenge: Challenge,
+    cfg: ChallengeResumeConfig | None = None,
+) -> ChallengeResult:
+    if cfg is None:
+        cfg = ChallengeResumeConfig(challenge=challenge.name, mode=ResumeMode.AUTO, attempts=1)
+
     challenge_dir = state.solutions_folder / challenge.name
     solution = challenge_dir / "solution"
     results_file = challenge_dir / "results.toml"
@@ -297,8 +315,19 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     if not transcript_file.is_file():
         transcript_file = state.solutions_folder / f"{challenge.name}_transcript.jsons"
 
-    # 1. Check if challenge is already completed
-    if results_file.is_file():
+    if cfg.mode == ResumeMode.NONE:
+        if results_file.is_file():
+            try:
+                content = results_file.read_text(encoding="utf-8")
+                return AndroidChallengeResult.model_validate(
+                    tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
+                )
+            except Exception:
+                pass
+        return AndroidChallengeResult(challenge=challenge.name, status="skipped", score=FloatScore(0.0))
+
+    # 1. Check if challenge is already completed (for auto mode)
+    if cfg.mode == ResumeMode.AUTO and results_file.is_file():
         try:
             content = results_file.read_text(encoding="utf-8")
             data = tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
@@ -312,31 +341,21 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         except Exception:
             pass
 
-    # 2. Check if we have an existing session to resume
-    session_id: str | None = None
+    # Read existing challenge result if available
+    previous: AndroidChallengeResult | None = None
     if results_file.is_file():
         try:
             content = results_file.read_text(encoding="utf-8")
             data = tomllib.loads(content) if results_file.suffix == ".toml" else json.loads(content)
-            session_id = data.get("session_id")
+            previous = AndroidChallengeResult.model_validate(data)
         except Exception:
-            pass
-
-    transcript_parser: TranscriptParser | None = None
-    if transcript_file.is_file():
-        try:
-            transcript_parser = TranscriptParser.from_file(transcript_file)
-        except Exception:
-            transcript_parser = None
-
-    if session_id is None and transcript_parser is not None:
-        session_id = transcript_parser.get_session_id()
+            previous = None
 
     # Check existing graded attempts
     audit_dir = challenge_dir / "grading"
     existing_attempts: list[AttemptRecord] = []
     if audit_dir.is_dir():
-        for att_path in sorted(audit_dir.glob("attempt-*.*")):
+        for att_path in sorted(audit_dir.glob("attempt-*.*"), key=_attempt_sort_key):
             if att_path.suffix in (".toml", ".json"):
                 try:
                     content = att_path.read_text(encoding="utf-8")
@@ -351,21 +370,99 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
                 except Exception:
                     pass
 
-    num_graded = len(existing_attempts)
+    session_id: str | None = previous.session_id if previous else None
+    transcript_parser: TranscriptParser | None = None
+    if transcript_file.is_file():
+        try:
+            transcript_parser = TranscriptParser.from_file(transcript_file)
+        except Exception:
+            transcript_parser = None
 
-    # Count completed agent runs from transcript
+    if session_id is None and transcript_parser is not None:
+        session_id = transcript_parser.get_session_id()
+
+    num_graded = len(existing_attempts)
     num_agent_runs = transcript_parser.count_agent_runs() if transcript_parser is not None else 0
 
     # If no session_id is known and solution doesn't exist, run fresh
     if session_id is None and not challenge_dir.is_dir():
         return run_challenge(state, challenge)
 
+    initial_prompt: str | None = None
     initial_response: str | None = None
-    if transcript_parser is not None and num_agent_runs > num_graded:
-        try:
-            initial_response = transcript_parser.get_final_response()
-        except Exception:
-            initial_response = None
+
+    if cfg.mode == ResumeMode.REGRADE:
+        resp = ""
+        if transcript_file.is_file():
+            try:
+                resp = extract_final_response(transcript_file)
+            except Exception:
+                resp = ""
+        logger.info("Challenge '%s': regrading current solution (mode=regrade)", challenge.name)
+        grade_solution = getattr(challenge, "grade_solution", None)
+        if not callable(grade_solution):
+            raise TypeError(f"Challenge {challenge.name} does not support grade_solution")
+        next_attempt_num = len(existing_attempts) + 1
+        record = grade_solution((state, solution), resp, attempt=next_attempt_num, persist=True)
+        existing_attempts.append(record)
+
+        if previous is None:
+            definition = getattr(challenge, "definition", None)
+            pkg = getattr(definition, "package", "")
+            previous = AndroidChallengeResult(
+                challenge=challenge.name,
+                package=pkg,
+                session_id=session_id,
+            )
+        previous.append_attempt(record)
+        challenge_dir.mkdir(parents=True, exist_ok=True)
+        (challenge_dir / "results.toml").write_text(previous.model_dump_toml())
+
+        if cfg.attempts == 0 or record.issues_resolved:
+            logger.info(
+                "Challenge '%s': regrade finished with %d attempts (score=%.4f)",
+                challenge.name,
+                len(existing_attempts),
+                float(previous.score),
+            )
+            return previous
+
+        initial_prompt = record.reprompt or format_reprompt(record)
+
+    elif cfg.mode == ResumeMode.LAST_ATTEMPT:
+        if existing_attempts:
+            last = existing_attempts[-1]
+            initial_prompt = last.reprompt or format_reprompt(last)
+        else:
+            initial_prompt = None
+
+    elif cfg.mode == ResumeMode.KEEP_GOING:
+        initial_prompt = KEEP_GOING_PROMPT
+
+    elif cfg.mode == ResumeMode.AUTO:
+        if transcript_parser is not None and num_agent_runs > num_graded:
+            try:
+                initial_response = transcript_parser.get_final_response()
+            except Exception:
+                initial_response = None
+        elif existing_attempts:
+            last = existing_attempts[-1]
+            if last.issues_resolved:
+                logger.info("Challenge '%s': already resolved; skipping", challenge.name)
+                if previous is not None:
+                    return previous
+                if results_file.is_file():
+                    return AndroidChallengeResult.model_validate_toml(results_file.read_text(encoding="utf-8"))
+            initial_prompt = last.reprompt or format_reprompt(last)
+        else:
+            initial_prompt = None
+
+    if cfg.attempts == 0:
+        if previous is not None:
+            return previous
+        if results_file.is_file():
+            return AndroidChallengeResult.model_validate_toml(results_file.read_text(encoding="utf-8"))
+        return AndroidChallengeResult(challenge=challenge.name, status="completed", score=FloatScore(0.0))
 
     # Try to resume agent using BaseAgent.resume
     resumed_agent = None
@@ -412,6 +509,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
     model_config = challenge.model_config
     start_time = time.perf_counter()
 
+    existing_sb = resumed_agent.sandbox if resumed_agent is not None else None
     with AndroidBenchSandbox(
         state,
         challenge.tag,
@@ -420,7 +518,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         name=challenge.name,
         internet_enabled=challenge.internet_enabled,
         extra_hosts={model_config.resolved_api_host: model_config.resolved_guest_addr},
-        existing_sandbox=resumed_agent.sandbox,
+        existing_sandbox=existing_sb,
         apps_to_install=(
             challenge.definition.apps_to_install
             if isinstance(challenge, AndroidAppChallenge)
@@ -428,6 +526,7 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         ),
     ) as sandbox:
         logger.info("Challenge '%s': resumed solver agent ready", challenge.name)
+
         def on_progress(p_res: AndroidChallengeResult) -> None:
             p_res.runtime = time.perf_counter() - start_time
             (challenge_dir / "results.toml").write_text(p_res.model_dump_toml())
@@ -441,6 +540,8 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
                         initial_attempts=existing_attempts,
                         initial_response=initial_response,
                         start_attempt_index=num_graded,
+                        additional_attempts=cfg.attempts,
+                        initial_prompt=initial_prompt,
                         progress_callback=on_progress,
                     )
                 else:
@@ -469,7 +570,10 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
                             session_transcript = (
                                 state.solutions_folder / f"{resumed_session_id}.jsons"
                             )
-                            shutil.copy2(history_file, session_transcript)
+                            if history_file.resolve() != session_transcript.resolve():
+                                shutil.copy2(history_file, session_transcript)
+                        if history_file.resolve() != target_transcript.resolve():
+                            shutil.copy2(history_file, target_transcript)
                         _copy_agent_context(resumed_agent, history_file, target_transcript)
 
     raw_resumed_sid = getattr(resumed_agent, "session_id", None)
@@ -484,13 +588,16 @@ def resume_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeRe
         if resumed_session_id and not result.session_id:
             result.session_id = resumed_session_id
     else:
-        limit_exceeded = getattr(outcome, "limit_exceeded", None)
+        raw_limit = getattr(outcome, "limit_exceeded", None)
+        limit_exceeded = str(raw_limit) if isinstance(raw_limit, (str, Path)) else None
         score_val = getattr(outcome, "score", 0.0)
         score_float = float(score_val.score if hasattr(score_val, "score") and not isinstance(score_val, (int, float)) else score_val)
+        raw_axes = getattr(outcome, "axes", {})
+        axes = raw_axes if isinstance(raw_axes, dict) else {}
         result = AndroidChallengeResult(
             challenge=challenge.name,
             score=FloatScore(score_float),
-            axes=getattr(outcome, "axes", {}),
+            axes=axes,
             runtime=time.perf_counter() - start_time,
             limit_exceeded=limit_exceeded,
             session_id=resumed_session_id,
@@ -505,6 +612,7 @@ def run_benchmark(
     benchmark_config: BenchmarkConfig | None = None,
     *,
     resume: bool = False,
+    resume_configs: dict[str, ChallengeResumeConfig] | None = None,
 ) -> AndroidBenchmarkResult:
     run.output_folder.mkdir(exist_ok=True, parents=True)
     if benchmark_config is not None:
@@ -543,24 +651,27 @@ def run_benchmark(
             sol_res = run.output_folder / ch.name / "results.toml"
             if not sol_res.is_file():
                 sol_res = run.output_folder / ch.name / "results.json"
-            if sol_res.is_file() and (
-                ch.name not in challenge_results
-                or getattr(challenge_results[ch.name], "status", None) != "completed"
-            ):
+            if sol_res.is_file() and ch.name not in challenge_results:
                 try:
                     content = sol_res.read_text(encoding="utf-8")
                     res_data = tomllib.loads(content) if sol_res.suffix == ".toml" else json.loads(content)
-                    if res_data.get("status") == "completed" and res_data.get("score") is not None:
-                        challenge_results[ch.name] = AndroidChallengeResult.model_validate(res_data)
+                    challenge_results[ch.name] = AndroidChallengeResult.model_validate(res_data)
                 except Exception:
                     pass
 
-        challenges_to_run = [
-            ch
-            for ch in run.challenges
-            if ch.name not in challenge_results
-            or getattr(challenge_results[ch.name], "status", None) != "completed"
-        ]
+        if resume_configs is not None:
+            challenges_to_run = [
+                ch
+                for ch in run.challenges
+                if ch.name in resume_configs and resume_configs[ch.name].mode != ResumeMode.NONE
+            ]
+        else:
+            challenges_to_run = [
+                ch
+                for ch in run.challenges
+                if ch.name not in challenge_results
+                or getattr(challenge_results[ch.name], "status", None) != "completed"
+            ]
 
     logger.info(
         "Benchmark '%s': %s (%d pending challenges, concurrency=%s, results=%s)",
@@ -572,15 +683,20 @@ def run_benchmark(
     )
     _save_benchmark_progress(run.output_folder, challenge_results, total_start)
 
-    runner_func = resume_challenge if resume else run_challenge
-
     if challenges_to_run:
         results_lock = threading.Lock()
 
         def wrapped_runner(st: GlobalRunState, ch: Challenge) -> ChallengeResult:
             start_time = time.perf_counter()
             try:
-                res = runner_func(st, ch)
+                if resume:
+                    cfg = resume_configs.get(ch.name) if resume_configs else None
+                    try:
+                        res = resume_challenge(st, ch, cfg)
+                    except TypeError:
+                        res = resume_challenge(st, ch)
+                else:
+                    res = run_challenge(st, ch)
             except Exception as exc:
                 logger.exception("Challenge '%s' failed", ch.name)
                 res = _failed_challenge_result(
@@ -613,15 +729,15 @@ def run_benchmark(
 def resume_benchmark(
     run: BenchmarkRun,
     benchmark_config: BenchmarkConfig | None = None,
+    *,
+    resume_configs: dict[str, ChallengeResumeConfig] | None = None,
 ) -> AndroidBenchmarkResult:
-    return run_benchmark(run, benchmark_config=benchmark_config, resume=True)
-
-
-
-def extract_final_response(transcript_path: Path | str) -> str:
-    """Extract final response from an agent transcript using TranscriptParser."""
-    return TranscriptParser.from_file(transcript_path).get_final_response()
-
+    return run_benchmark(
+        run,
+        benchmark_config=benchmark_config,
+        resume=True,
+        resume_configs=resume_configs,
+    )
 
 
 def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResult:
@@ -650,7 +766,7 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
         except Exception:
             pass
 
-    logger.info("Challenge '%s': grading existing solution", challenge.name)
+    logger.info("Challenge '%s': grading existing solution (read-only)", challenge.name)
     response = extract_final_response(transcript_path)
     start_time = time.perf_counter()
 
@@ -658,7 +774,7 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
     if not callable(grade_solution):
         raise TypeError(f"Challenge {challenge.name} does not support grade_solution")
 
-    record = grade_solution((state, solution), response, attempt=1)
+    record = grade_solution((state, solution), response, attempt=1, persist=False)
     if record.reprompt is None and record.issue_capabilities:
         record.reprompt = format_reprompt(record)
 
@@ -679,8 +795,7 @@ def grade_existing_challenge(state: GlobalRunState, challenge: Challenge) -> Cha
     )
 
 
-def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
-    run.output_folder.mkdir(exist_ok=True, parents=True)
+def run_grader(run: BenchmarkRun) -> TestGraderResult:
     logger.info(
         "Benchmark '%s': grading existing solutions (%d challenges, concurrency=%s)",
         run.name,
@@ -698,7 +813,7 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
     challenge_results = run_challenges(
         state,
         run.challenges,
-        run_name=f"{run.name} (test-grader)",
+        run_name=f"{run.name} (grader)",
         num_instances=run.num_instances,
         challenge_runner=grade_existing_challenge,
     )
@@ -737,9 +852,6 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         reprompts=reprompts,
         limits_exceeded=limits_exceeded,
     )
-    (run.output_folder / "test_grader_results.toml").write_text(
-        grader_result.model_dump_toml()
-    )
     logger.info(
         "Benchmark '%s': existing solutions graded (score=%.4f, runtime=%.1fs)",
         run.name,
@@ -747,3 +859,6 @@ def run_test_grader(run: BenchmarkRun) -> TestGraderResult:
         grader_result.total_runtime,
     )
     return grader_result
+
+
+run_test_grader = run_grader

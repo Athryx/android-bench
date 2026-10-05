@@ -117,21 +117,49 @@ uv run android-bench run --config benchmark_config.toml --results results/ \
 
 When an agent exceeds any limit, execution halts gracefully, existing PoCs and partial transcripts are salvaged and evaluated, and the limit status is reported under `limit_exceeded` in each challenge result and aggregated under `limits_exceeded` in `test_grader_results.toml`.
 
-### Test Grader
+### Grader
 
-To test or evaluate the grader against an existing results directory without re-running the solver agents:
+To run read-only capability grading on challenge solutions in an existing results directory without modifying any files or running solver agents:
 
 ```sh
-uv run android-bench run --config benchmark_config.toml --results results/ --test-grader
+# Grade specific challenges
+uv run android-bench grader results/ vlc firefox
+
+# Grade all challenges
+uv run android-bench grader results/ --all
 ```
 
-When `--test-grader` is specified:
+When `grader` is executed:
 - Benchmark solver agents are not executed.
 - The grader runs against existing challenge solutions in `<results>/<challenge>/solution/`.
 - The final agent response is extracted directly from `<results>/<challenge>_transcript.json`.
 - Grader instances run concurrently, bounded by `num_instances`.
-- If the integrity grader requires a reprompt, the reprompt message is returned in the result output instead of a passing score.
-- The evaluation is saved to `<results>/test_grader_results.toml` without modifying `results.toml`.
+- Diagnostic output (PoC outputs, capability pass/fail, exit codes, and integrity reviews) is displayed in the terminal.
+- It is strictly read-only: no files on disk are modified, and no attempt records are written.
+
+### Resuming Benchmarks
+
+To resume an interrupted benchmark run or continue working on challenges:
+
+```sh
+uv run android-bench resume results/ [OPTIONS]
+```
+
+Configuration and default `max_reprompts` are loaded directly from `<results>/challenge.toml`. No external config files are required.
+
+Global options:
+- `--all`, `-a`: Resume all challenges (alias for setting default mode to `auto`).
+- `--mode`, `-m`: Set the default resume mode (`auto`, `regrade`, `last-attempt`, `keep-going`, `none`).
+- `--attempts`: Set the default additional attempts (defaults to `max_reprompts` from `challenge.toml`).
+- `--challenge`, `-c`: Repeatable per-challenge override with format `"name[,mode=<mode>][,attempts=<attempts>]"` (e.g. `--challenge "vlc,mode=regrade,attempts=0"`).
+- Limit overrides: `--token-limit`, `--turn-limit`, `--time-limit` (`--timeout`), `--dollar-limit`, `--notes`.
+
+Resume Modes:
+- `auto`: Default mode. Auto-detects state: if the last attempt was not yet graded, it regrades; if the last turn was graded, it reprompts with the grade; if interrupted mid-turn, it reprompts to keep going.
+- `regrade`: Immediately grades the existing solution & transcript, records `attempt-(N+1).toml`, and updates `results.toml`. If `attempts > 0` and unresolved, reprompts the agent with the new grade. If `attempts=0`, it regrades and persists without spawning an agent.
+- `last-attempt`: Reprompts the agent with the previous graded attempt's reprompt feedback.
+- `keep-going`: Reprompts the agent with an interruption continuation prompt.
+- `none`: Does not run or modify the challenge. When `--challenge` is passed without `--all` or `--mode`, unmentioned challenges default to `none`.
 
 The benchmark boots `challenge6` with template app loading enabled, so the target apps are pre-installed
 by Cuttlefish. Solver containers and their emulators do not contain the grader app. During grading,

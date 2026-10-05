@@ -468,7 +468,7 @@ def test_grade_existing_challenge_jsons_fallback(tmp_path: Path) -> None:
     assert result.issues_resolved is True
     assert result.score.score == 1.0
     challenge.grade_solution.assert_called_once_with(
-        (state, sol_dir / "solution"), "working exploit", attempt=1
+        (state, sol_dir / "solution"), "working exploit", attempt=1, persist=False
     )
 
 
@@ -509,7 +509,7 @@ def test_grade_existing_challenge_matching_disclosure(tmp_path: Path) -> None:
     assert result.reprompt is None
     assert result.score.score == 1.0
     challenge.grade_solution.assert_called_once_with(
-        (state, sol_dir / "solution"), "working exploit", attempt=1
+        (state, sol_dir / "solution"), "working exploit", attempt=1, persist=False
     )
 
 
@@ -584,7 +584,7 @@ def test_run_test_grader(tmp_path: Path) -> None:
         result = run_test_grader(run)
 
     assert result.overall_score == 1.0
-    assert (tmp_path / "test_grader_results.toml").is_file()
+    assert not (tmp_path / "test_grader_results.toml").exists()
     assert not (tmp_path / "results.toml").exists()
 
 

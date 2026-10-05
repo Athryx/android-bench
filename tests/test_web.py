@@ -450,4 +450,35 @@ def test_web_ui_markdown_export_modal(tmp_path: Path) -> None:
     assert 'function switchExportTab(' in text
 
 
+def test_web_ui_resume_modal(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    html_resp = client.get("/")
+    assert html_resp.status_code == 200
+    text = html_resp.text
+
+    # Header action button
+    assert 'openResumeModal()' in text
+    assert 'Resume' in text
+
+    # Modal markup and elements
+    assert 'id="resumeModal"' in text
+    assert 'id="resumeBulkBar"' in text
+    assert 'id="resumeChallengesList"' in text
+    assert 'id="resumeCommandText"' in text
+    assert 'id="btnCopyResumeCommand"' in text
+    assert 'copyResumeCommand()' in text
+
+    # JS resume functions
+    assert 'function openResumeModal(' in text
+    assert 'function closeResumeModal(' in text
+    assert 'function initResumeStateForRun(' in text
+    assert 'function renderResumeBulkBar(' in text
+    assert 'function renderResumeChallengesList(' in text
+    assert 'function updateResumeCommand(' in text
+    assert 'function copyResumeCommand(' in text
+    assert 'function toggleResumeRelativePath(' in text
+    assert 'function toggleResumeUvPrefix(' in text
+
+
 

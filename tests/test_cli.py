@@ -87,7 +87,7 @@ def test_test_grader_command_filters_challenges_and_dispatches(tmp_path: Path) -
             "android_bench.cli.run_test_grader", return_value=stub_result
         ) as run_test_grader_mock,
     ):
-        test_grader_command(results_dir)
+        test_grader_command(results_dir, all_challenges=True)
 
     run_test_grader_mock.assert_called_once()
     run_arg = run_test_grader_mock.call_args.args[0]
@@ -95,9 +95,10 @@ def test_test_grader_command_filters_challenges_and_dispatches(tmp_path: Path) -
     assert run_arg.challenges[0].name == first_ch
 
 
-def test_test_grader_command_with_explicit_config(tmp_path: Path) -> None:
-    config = tmp_path / "benchmark.json"
-    config.write_text(
+def test_test_grader_command_with_explicit_challenges(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    (results_dir / "challenge.json").write_text(
         """{
           "name": "test-grader-smoke",
           "num_instances": 1,
@@ -105,8 +106,6 @@ def test_test_grader_command_with_explicit_config(tmp_path: Path) -> None:
           "model_config": {"model": "gpt-6-astra"}
         }"""
     )
-    results_dir = tmp_path / "results"
-    results_dir.mkdir()
     first_ch = CHALLENGES[0].name.value
     (results_dir / first_ch).mkdir()
 
@@ -122,9 +121,12 @@ def test_test_grader_command_with_explicit_config(tmp_path: Path) -> None:
             "android_bench.cli.run_test_grader", return_value=stub_result
         ) as run_test_grader_mock,
     ):
-        test_grader_command(results_dir, config=config)
+        test_grader_command(results_dir, challenges=[first_ch])
 
     run_test_grader_mock.assert_called_once()
+    run_arg = run_test_grader_mock.call_args.args[0]
+    assert len(run_arg.challenges) == 1
+    assert run_arg.challenges[0].name == first_ch
 
 
 def test_test_grader_command_validates_results_dir(tmp_path: Path) -> None:
@@ -143,8 +145,11 @@ def test_test_grader_command_validates_results_dir(tmp_path: Path) -> None:
     (empty_dir / "challenge.json").write_text(
         '{"name": "test", "harness": "codex", "model_config": {"model": "gpt-6-astra"}}'
     )
-    with pytest.raises(typer.BadParameter, match="no challenge solution directories found"):
+    with pytest.raises(typer.BadParameter, match="Specify challenge names to grade or use --all"):
         test_grader_command(empty_dir)
+
+    with pytest.raises(typer.BadParameter, match="no challenge solution directories found"):
+        test_grader_command(empty_dir, all_challenges=True)
 
 
 def test_run_command_writes_challenge_toml(tmp_path: Path) -> None:
@@ -365,13 +370,14 @@ def test_resume_cli_uses_challenge_json(tmp_path: Path) -> None:
     assert run.output_folder == results
 
 
-def test_resume_cli_with_explicit_config_and_limits(tmp_path: Path) -> None:
+def test_resume_cli_with_limits(tmp_path: Path) -> None:
     from decimal import Decimal
     from typer.testing import CliRunner
     from android_bench.cli import app
 
-    config = tmp_path / "benchmark.json"
-    config.write_text(
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "challenge.json").write_text(
         """{
           "name": "resume-limits-test",
           "num_instances": 1,
@@ -379,8 +385,6 @@ def test_resume_cli_with_explicit_config_and_limits(tmp_path: Path) -> None:
           "model_config": {"model": "gpt-6-astra"}
         }"""
     )
-    results = tmp_path / "results"
-    results.mkdir()
 
     stub_result = type(
         "BenchmarkResultStub",
@@ -400,8 +404,6 @@ def test_resume_cli_with_explicit_config_and_limits(tmp_path: Path) -> None:
             [
                 "resume",
                 str(results),
-                "--config",
-                str(config),
                 "--token-limit",
                 "20000",
                 "--dollar-limit",
@@ -415,6 +417,179 @@ def test_resume_cli_with_explicit_config_and_limits(tmp_path: Path) -> None:
     assert challenge.limits is not None
     assert challenge.limits.token_limit == 20000
     assert challenge.limits.dollar_limit == Decimal("4.5")
+
+
+def test_resume_cli_challenge_spec_and_modes(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+    from android_bench.models import ResumeMode
+
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "challenge.json").write_text(
+        """{
+          "name": "resume-spec-test",
+          "num_instances": 1,
+          "harness": "codex",
+          "max_reprompts": 3,
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+
+    stub_result = type(
+        "BenchmarkResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: "{}"},
+    )()
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:3]),
+        patch(
+            "android_bench.cli.resume_benchmark", return_value=stub_result
+        ) as resume_benchmark_mock,
+    ):
+        runner = CliRunner()
+        first_ch = CHALLENGES[0].name.value
+        second_ch = CHALLENGES[1].name.value
+        res = runner.invoke(
+            app,
+            [
+                "resume",
+                str(results),
+                "--challenge",
+                f"{first_ch},mode=regrade,attempts=0",
+                "--challenge",
+                f"{second_ch},mode=keep-going,attempts=2",
+            ],
+        )
+
+    assert res.exit_code == 0
+    resume_benchmark_mock.assert_called_once()
+    kwargs = resume_benchmark_mock.call_args.kwargs
+    resume_configs = kwargs["resume_configs"]
+    assert resume_configs[first_ch].mode == ResumeMode.REGRADE
+    assert resume_configs[first_ch].attempts == 0
+    assert resume_configs[second_ch].mode == ResumeMode.KEEP_GOING
+    assert resume_configs[second_ch].attempts == 2
+    # Unmentioned 3rd challenge should have mode == NONE
+    third_ch = CHALLENGES[2].name.value
+    assert resume_configs[third_ch].mode == ResumeMode.NONE
+
+
+def test_resume_cli_all_with_exclusion(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+    from android_bench.models import ResumeMode
+
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "challenge.json").write_text(
+        """{
+          "name": "resume-exclusion-test",
+          "num_instances": 1,
+          "harness": "codex",
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+
+    stub_result = type(
+        "BenchmarkResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: "{}"},
+    )()
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:2]),
+        patch(
+            "android_bench.cli.resume_benchmark", return_value=stub_result
+        ) as resume_benchmark_mock,
+    ):
+        runner = CliRunner()
+        first_ch = CHALLENGES[0].name.value
+        second_ch = CHALLENGES[1].name.value
+        res = runner.invoke(
+            app,
+            [
+                "resume",
+                str(results),
+                "--all",
+                "--challenge",
+                f"{first_ch},mode=none",
+            ],
+        )
+
+    assert res.exit_code == 0
+    resume_benchmark_mock.assert_called_once()
+    resume_configs = resume_benchmark_mock.call_args.kwargs["resume_configs"]
+    assert resume_configs[first_ch].mode == ResumeMode.NONE
+    assert resume_configs[second_ch].mode == ResumeMode.AUTO
+
+
+def test_resume_cli_rejects_zero_attempts_on_non_regrade(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "challenge.json").write_text(
+        """{
+          "name": "resume-reject-test",
+          "num_instances": 1,
+          "harness": "codex",
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(
+        app,
+        [
+            "resume",
+            str(results),
+            "--challenge",
+            f"{CHALLENGES[0].name.value},mode=keep-going,attempts=0",
+        ],
+    )
+    assert res.exit_code != 0
+    assert "attempts=0 is only allowed" in res.output
+    assert "regrade" in res.output
+
+
+def test_grader_cli_subcommand(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "challenge.json").write_text(
+        """{
+          "name": "grader-cli-test",
+          "num_instances": 1,
+          "harness": "codex",
+          "model_config": {"model": "gpt-6-astra"}
+        }"""
+    )
+    first_ch = CHALLENGES[0].name.value
+    (results / first_ch).mkdir()
+
+    stub_result = type(
+        "TestGraderResultStub",
+        (),
+        {"model_dump_json": lambda self, indent: '{"score": 1.0}'},
+    )()
+
+    with (
+        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli.run_test_grader", return_value=stub_result) as run_grader_mock,
+    ):
+        runner = CliRunner()
+        res = runner.invoke(app, ["grader", str(results), first_ch])
+
+    assert res.exit_code == 0
+    run_grader_mock.assert_called_once()
+    run = run_grader_mock.call_args.args[0]
+    assert len(run.challenges) == 1
+    assert run.challenges[0].name == first_ch
 
 
 def test_format_dated_name_includes_time_to_minute() -> None:

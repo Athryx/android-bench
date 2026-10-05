@@ -1153,6 +1153,159 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
   background: #11151c;
 }
 
+/* Resume Modal Specific Styles */
+.modal-card-resume {
+  width: 980px;
+  max-width: 95vw;
+  max-height: 90vh;
+}
+.resume-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #11151c;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+.resume-challenges-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 42vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.resume-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--panel-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  gap: 12px;
+  transition: all 0.15s;
+}
+.resume-row.disabled {
+  opacity: 0.5;
+  background: rgba(22, 27, 34, 0.4);
+}
+.resume-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  flex: 1;
+}
+.resume-row-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.resume-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.resume-select:focus {
+  border-color: var(--accent);
+}
+.resume-input-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.resume-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  width: 52px;
+  text-align: center;
+  outline: none;
+}
+.resume-input:focus {
+  border-color: var(--accent);
+}
+.resume-stepper-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: bold;
+  user-select: none;
+  transition: all 0.1s;
+}
+.resume-stepper-btn:hover:not(:disabled) {
+  background: var(--panel-active);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.resume-stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.resume-command-card {
+  background: #11151c;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.resume-command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.resume-command-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.resume-command-textarea {
+  min-height: 60px;
+  max-height: 110px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: #58a6ff;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  white-space: pre-wrap;
+  word-break: break-all;
+  box-sizing: border-box;
+}
+.resume-command-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1260,6 +1413,60 @@ html, body { height: 100%; margin: 0; padding: 0; background: var(--bg); color: 
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
           Copy Markdown
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Resume Benchmark Modal -->
+<div id="resumeModal" class="modal-overlay hidden" onclick="handleResumeModalOverlayClick(event)">
+  <div class="modal-card modal-card-resume" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <h3 class="modal-title">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Resume Benchmark
+        </h3>
+        <span class="modal-subtitle" id="resumeModalSubtitle">Configure attempts and resume modes per challenge</span>
+      </div>
+      <button class="btn-icon" onclick="closeResumeModal()" title="Close (Esc)">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Quick Bulk Action Bar -->
+      <div class="resume-bulk-bar" id="resumeBulkBar"></div>
+
+      <!-- Challenge List -->
+      <div class="resume-challenges-container" id="resumeChallengesList"></div>
+
+      <!-- Command Output Card -->
+      <div class="resume-command-card">
+        <div class="resume-command-header">
+          <span class="resume-command-title">Generated Resume Command</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label class="toggle-chip active" id="chipResumeRel" onclick="toggleResumeRelativePath()" title="Toggle between relative and full path">
+              <span>Relative Path</span>
+            </label>
+            <label class="toggle-chip active" id="chipResumeUv" onclick="toggleResumeUvPrefix()" title="Toggle uv run prefix">
+              <span>uv run</span>
+            </label>
+          </div>
+        </div>
+        <textarea id="resumeCommandText" class="resume-command-textarea" readonly spellcheck="false" onclick="this.select()" placeholder="Generating resume command..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div style="font-size:11.5px;color:var(--text-dim);" id="resumeStatsText"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeResumeModal()">Close</button>
+        <button class="btn btn-primary" id="btnCopyResumeCommand" onclick="copyResumeCommand()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          Copy Command
         </button>
       </div>
     </div>
@@ -1848,7 +2055,13 @@ function renderRunDetail(run) {
             Total Cost: $${run.cost_usd.toFixed(4)}
           </span>
           ` : ''}
-          <button class="btn btn-primary" onclick="openExportModal()" title="Export results as Markdown">
+          <button class="btn btn-primary" onclick="openResumeModal()" title="Resume benchmark or generate resume command">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Resume
+          </button>
+          <button class="btn" onclick="openExportModal()" title="Export results as Markdown">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
@@ -2362,9 +2575,13 @@ function handleModalOverlayClick(e) {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    const modal = document.getElementById('exportModal');
-    if (modal && !modal.classList.contains('hidden')) {
+    const exportModal = document.getElementById('exportModal');
+    if (exportModal && !exportModal.classList.contains('hidden')) {
       closeExportModal();
+    }
+    const resumeModal = document.getElementById('resumeModal');
+    if (resumeModal && !resumeModal.classList.contains('hidden')) {
+      closeResumeModal();
     }
   }
 });
@@ -2659,6 +2876,360 @@ function copyExportMarkdown() {
     return;
   }
   copyText(textarea.value, 'Markdown report copied to clipboard');
+}
+
+// -------------------------------------------------------------
+// Resume Benchmark Modal Logic
+// -------------------------------------------------------------
+let resumeState = {
+  run: null,
+  useRelative: true,
+  includeUv: true,
+  challenges: {} // name -> { name, package, status, score, pastAttempts, mode, attempts }
+};
+
+function openResumeModal() {
+  if (!currentRunDetail) {
+    showToast('No run selected to resume');
+    return;
+  }
+  initResumeStateForRun(currentRunDetail);
+  const subtitle = document.getElementById('resumeModalSubtitle');
+  if (subtitle) {
+    subtitle.textContent = `${currentRunDetail.display_name || currentRunDetail.folder_name}`;
+  }
+  renderResumeBulkBar();
+  renderResumeChallengesList();
+  updateResumeCommand();
+
+  const modal = document.getElementById('resumeModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeResumeModal() {
+  const modal = document.getElementById('resumeModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function handleResumeModalOverlayClick(e) {
+  if (e.target && e.target.id === 'resumeModal') {
+    closeResumeModal();
+  }
+}
+
+function initResumeStateForRun(run) {
+  resumeState.run = run;
+  resumeState.challenges = {};
+  const defaultAttempts = (run.config && run.config.max_reprompts != null) ? run.config.max_reprompts : 1;
+
+  (run.challenges || []).forEach(ch => {
+    const isCompleted = ch.status === 'completed' && ch.score >= 1.0;
+    // Default mode: if already completed with score >= 1.0, default to 'none' so user doesn't re-run solved challenges unintentionally;
+    // otherwise default to 'auto'
+    const initialMode = isCompleted ? 'none' : 'auto';
+    resumeState.challenges[ch.name] = {
+      name: ch.name,
+      package: ch.package || '',
+      status: ch.status || 'unknown',
+      score: ch.score != null ? ch.score : 0.0,
+      pastAttempts: (ch.attempts && ch.attempts.length) || 0,
+      mode: initialMode,
+      attempts: defaultAttempts,
+    };
+  });
+}
+
+function renderResumeBulkBar() {
+  const bar = document.getElementById('resumeBulkBar');
+  if (!bar || !resumeState.run) return;
+
+  const defaultAttempts = (resumeState.run.config && resumeState.run.config.max_reprompts != null)
+    ? resumeState.run.config.max_reprompts
+    : 1;
+
+  bar.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+      <span class="config-group-label" style="min-width:auto;margin-right:4px;">Quick Actions:</span>
+      <button class="toggle-chip" onclick="applyResumeBulkMode('auto', ${defaultAttempts})" title="Set all challenges to auto mode">All Auto</button>
+      <button class="toggle-chip" onclick="applyResumeBulkMode('regrade', 0)" title="Regrade and persist existing solutions with 0 additional attempts">All Regrade (0 attempts)</button>
+      <button class="toggle-chip" onclick="applyResumeIncompleteOnly(${defaultAttempts})" title="Set incomplete/failed to auto, completed to none">Incomplete Only</button>
+      <button class="toggle-chip" onclick="applyResumeAllNone()" title="Disable all challenges">Deselect All</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--text-muted);">Set All Mode:</span>
+        <select class="resume-select" onchange="applyResumeBulkMode(this.value); this.selectedIndex=0;">
+          <option value="" disabled selected>Select...</option>
+          <option value="auto">auto</option>
+          <option value="regrade">regrade</option>
+          <option value="last-attempt">last-attempt</option>
+          <option value="keep-going">keep-going</option>
+          <option value="none">none</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--text-muted);">Set All Attempts:</span>
+        <div class="resume-input-group">
+          <input type="number" min="0" max="99" class="resume-input" id="bulkAttemptsInput" value="${defaultAttempts}" style="width:48px;">
+          <button class="btn btn-sm" onclick="applyResumeBulkAttempts()" style="padding:3px 8px;font-size:11px;">Apply</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderResumeChallengesList() {
+  const container = document.getElementById('resumeChallengesList');
+  if (!container || !resumeState.run) return;
+
+  const chs = Object.values(resumeState.challenges);
+  if (chs.length === 0) {
+    container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-muted);">No challenges found in this run.</div>`;
+    return;
+  }
+
+  container.innerHTML = chs.map(ch => {
+    const isNone = ch.mode === 'none';
+    const isRegrade = ch.mode === 'regrade';
+    const minAttempts = isRegrade ? 0 : 1;
+    const scorePct = Math.round(ch.score * 100);
+    const scoreColor = ch.score >= 1.0 ? 'var(--green)' : (ch.score > 0 ? 'var(--yellow)' : 'var(--text-muted)');
+
+    return `
+      <div class="resume-row ${isNone ? 'disabled' : ''}" id="resume-row-${escapeHtml(ch.name)}">
+        <div class="resume-row-left">
+          <input type="checkbox" ${!isNone ? 'checked' : ''} onchange="toggleResumeChallengeEnabled('${escapeHtml(ch.name)}', this.checked)" title="Enable or disable this challenge" style="cursor:pointer;accent-color:var(--accent);">
+          <div style="display:flex;flex-direction:column;gap:1px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-weight:600;font-size:13px;color:var(--text);">${escapeHtml(ch.name)}</span>
+              <span class="pill pill-${escapeHtml(ch.status)} pill-sm">${escapeHtml(ch.status)}</span>
+              <span style="font-size:11px;font-weight:600;color:${scoreColor};">${ch.score.toFixed(2)} (${scorePct}%)</span>
+              <span style="font-size:11px;color:var(--text-dim);">${ch.pastAttempts} ${ch.pastAttempts === 1 ? 'attempt' : 'attempts'}</span>
+            </div>
+            ${ch.package ? `<span class="challenge-pkg" style="font-size:11px;">${escapeHtml(ch.package)}</span>` : ''}
+          </div>
+        </div>
+        <div class="resume-row-right">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:var(--text-dim);">Mode:</span>
+            <select class="resume-select" onchange="setResumeChallengeMode('${escapeHtml(ch.name)}', this.value)">
+              <option value="auto" ${ch.mode === 'auto' ? 'selected' : ''}>auto</option>
+              <option value="regrade" ${ch.mode === 'regrade' ? 'selected' : ''}>regrade</option>
+              <option value="last-attempt" ${ch.mode === 'last-attempt' ? 'selected' : ''}>last-attempt</option>
+              <option value="keep-going" ${ch.mode === 'keep-going' ? 'selected' : ''}>keep-going</option>
+              <option value="none" ${ch.mode === 'none' ? 'selected' : ''}>none</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:var(--text-dim);">Attempts:</span>
+            <div class="resume-input-group">
+              <button class="resume-stepper-btn" ${isNone ? 'disabled' : ''} onclick="stepResumeAttempts('${escapeHtml(ch.name)}', -1)">−</button>
+              <input type="number" class="resume-input" min="${minAttempts}" max="99" ${isNone ? 'disabled' : ''} value="${ch.attempts}" onchange="setResumeChallengeAttempts('${escapeHtml(ch.name)}', this.value)">
+              <button class="resume-stepper-btn" ${isNone ? 'disabled' : ''} onclick="stepResumeAttempts('${escapeHtml(ch.name)}', 1)">+</button>
+            </div>
+            ${isRegrade && ch.attempts === 0 ? `<span style="font-size:10px;color:var(--yellow);margin-left:2px;">(regrade only)</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleResumeChallengeEnabled(name, enabled) {
+  const ch = resumeState.challenges[name];
+  if (!ch) return;
+  if (!enabled) {
+    ch.mode = 'none';
+  } else {
+    ch.mode = 'auto';
+    if (ch.attempts === 0) ch.attempts = 1;
+  }
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function setResumeChallengeMode(name, mode) {
+  const ch = resumeState.challenges[name];
+  if (!ch) return;
+  ch.mode = mode;
+  if (mode !== 'regrade' && ch.attempts === 0) {
+    ch.attempts = 1;
+  }
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function setResumeChallengeAttempts(name, val) {
+  const ch = resumeState.challenges[name];
+  if (!ch) return;
+  let num = parseInt(val, 10);
+  const min = ch.mode === 'regrade' ? 0 : 1;
+  if (isNaN(num) || num < min) num = min;
+  ch.attempts = num;
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function stepResumeAttempts(name, delta) {
+  const ch = resumeState.challenges[name];
+  if (!ch || ch.mode === 'none') return;
+  const min = ch.mode === 'regrade' ? 0 : 1;
+  ch.attempts = Math.max(min, ch.attempts + delta);
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function applyResumeBulkMode(mode, attempts) {
+  if (!mode) return;
+  Object.values(resumeState.challenges).forEach(ch => {
+    ch.mode = mode;
+    if (attempts != null) {
+      ch.attempts = attempts;
+    } else if (mode !== 'regrade' && ch.attempts === 0) {
+      ch.attempts = 1;
+    }
+  });
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function applyResumeIncompleteOnly(defaultAttempts) {
+  Object.values(resumeState.challenges).forEach(ch => {
+    const isCompleted = ch.status === 'completed' && ch.score >= 1.0;
+    if (isCompleted) {
+      ch.mode = 'none';
+    } else {
+      ch.mode = 'auto';
+      ch.attempts = defaultAttempts;
+    }
+  });
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function applyResumeAllNone() {
+  Object.values(resumeState.challenges).forEach(ch => {
+    ch.mode = 'none';
+  });
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function applyResumeBulkAttempts() {
+  const input = document.getElementById('bulkAttemptsInput');
+  if (!input) return;
+  const val = parseInt(input.value, 10);
+  if (isNaN(val) || val < 0) return;
+  Object.values(resumeState.challenges).forEach(ch => {
+    if (ch.mode !== 'none') {
+      const min = ch.mode === 'regrade' ? 0 : 1;
+      ch.attempts = Math.max(min, val);
+    }
+  });
+  renderResumeChallengesList();
+  updateResumeCommand();
+}
+
+function toggleResumeRelativePath() {
+  resumeState.useRelative = !resumeState.useRelative;
+  const chip = document.getElementById('chipResumeRel');
+  if (chip) chip.classList.toggle('active', resumeState.useRelative);
+  updateResumeCommand();
+}
+
+function toggleResumeUvPrefix() {
+  resumeState.includeUv = !resumeState.includeUv;
+  const chip = document.getElementById('chipResumeUv');
+  if (chip) chip.classList.toggle('active', resumeState.includeUv);
+  updateResumeCommand();
+}
+
+function updateResumeCommand() {
+  const textarea = document.getElementById('resumeCommandText');
+  const stats = document.getElementById('resumeStatsText');
+  if (!textarea || !resumeState.run) return;
+
+  const run = resumeState.run;
+  let targetPath = '';
+  if (resumeState.useRelative && run.path) {
+    if (run.path.startsWith('results/')) {
+      targetPath = run.path;
+    } else {
+      targetPath = 'results/' + run.path.replace(/^\/+/, '');
+    }
+  } else {
+    targetPath = run.full_path || run.path || '';
+  }
+
+  if (targetPath.includes(' ')) {
+    targetPath = `"${targetPath}"`;
+  }
+
+  const prefix = resumeState.includeUv ? 'uv run android-bench resume' : 'android-bench resume';
+  const allChs = Object.values(resumeState.challenges);
+  const activeChs = allChs.filter(ch => ch.mode !== 'none');
+  const defaultAttempts = (run.config && run.config.max_reprompts != null) ? run.config.max_reprompts : 1;
+
+  if (stats) {
+    stats.textContent = `${activeChs.length} of ${allChs.length} challenge${allChs.length === 1 ? '' : 's'} selected to resume`;
+  }
+
+  if (activeChs.length === 0) {
+    textarea.value = '# No challenges selected to resume\n# Use quick actions or checkboxes above to enable challenges.';
+    return;
+  }
+
+  let cmd = '';
+  const firstMode = activeChs[0].mode;
+  const firstAttempts = activeChs[0].attempts;
+  const allSameMode = activeChs.every(c => c.mode === firstMode);
+  const allSameAttempts = activeChs.every(c => c.attempts === firstAttempts);
+
+  if (activeChs.length === allChs.length && allSameMode && allSameAttempts) {
+    // All challenges in the run are active with identical settings
+    if (firstMode === 'auto' && firstAttempts === defaultAttempts) {
+      cmd = `${prefix} ${targetPath} --all`;
+    } else if (firstMode === 'auto') {
+      cmd = `${prefix} ${targetPath} --all --attempts ${firstAttempts}`;
+    } else {
+      cmd = `${prefix} ${targetPath} --mode ${firstMode} --attempts ${firstAttempts}`;
+    }
+  } else {
+    // Subset of challenges or differing settings: emit explicit per-challenge specs
+    const challengeFlags = activeChs.map(ch => {
+      if (ch.mode === 'auto' && ch.attempts === defaultAttempts) {
+        return `--challenge "${ch.name}"`;
+      }
+      return `--challenge "${ch.name},mode=${ch.mode},attempts=${ch.attempts}"`;
+    }).join(' ');
+    cmd = `${prefix} ${targetPath} ${challengeFlags}`;
+  }
+
+  textarea.value = cmd;
+}
+
+function copyResumeCommand() {
+  const textarea = document.getElementById('resumeCommandText');
+  if (!textarea || !textarea.value || textarea.value.startsWith('# No challenges')) {
+    showToast('No active challenges to copy');
+    return;
+  }
+  const cmd = textarea.value;
+  copyText(cmd, 'Resume command copied to clipboard');
+
+  const btn = document.getElementById('btnCopyResumeCommand');
+  if (btn) {
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+      Copied!
+    `;
+    setTimeout(() => {
+      btn.innerHTML = origHtml;
+    }, 2000);
+  }
 }
 </script>
 </body>

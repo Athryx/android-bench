@@ -15,9 +15,11 @@ from android_bench.catalog import ChallengeDefinition, select_challenges
 from android_bench.challenge import AndroidAppChallenge
 from android_bench.config import BenchmarkConfig
 from android_bench.docker import setup_images
+from android_bench.models import ChallengeResumeConfig, ResumeMode
 from android_bench.runner import (
     resume_benchmark,
     run_benchmark,
+    run_grader,
     run_test_grader,
 )
 
@@ -198,22 +200,35 @@ def resume_command(
         resolve_path=True,
         help="Results directory to resume.",
     ),
+    all_challenges: bool = typer.Option(
+        False,
+        "--all",
+        "-a",
+        help="Resume all challenges (alias for setting default mode to auto).",
+    ),
+    mode: ResumeMode | None = typer.Option(
+        None,
+        "--mode",
+        "-m",
+        help="Default resume mode: auto, regrade, last-attempt, keep-going, none.",
+    ),
+    attempts: int | None = typer.Option(
+        None,
+        "--attempts",
+        help="Default additional attempts (defaults to challenge.toml max_reprompts).",
+    ),
+    challenge: list[str] | None = typer.Option(
+        None,
+        "--challenge",
+        "-c",
+        help="Per-challenge spec: 'name[,mode=<mode>][,attempts=<attempts>]' (repeatable).",
+    ),
     results_opt: Path | None = typer.Option(
         None,
         "--results",
         file_okay=False,
         resolve_path=True,
         help="Results directory (alternative to positional argument).",
-    ),
-    config: Path | None = typer.Option(
-        None,
-        "--config",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        resolve_path=True,
-        help="Optional benchmark configuration override (defaults to challenge.toml in results directory).",
     ),
     token_limit: int | None = typer.Option(
         None,
@@ -252,7 +267,7 @@ def resume_command(
 
     if not target_results.exists() or not target_results.is_dir():
         raise typer.BadParameter(
-            f"results directory {target_results} must exist", param_hint="--results"
+            f"results directory {target_results} must exist", param_hint="results"
         )
 
     if notes_val is not None and str(notes_val).strip():
@@ -263,19 +278,13 @@ def resume_command(
         else:
             notes_path.write_text(str(notes_val).strip() + "\n", encoding="utf-8")
 
-    resolved_config: Path | None = _unwrap(config)
-    if resolved_config is not None:
-        config_file = resolved_config
-    elif (target_results / "challenge.toml").is_file():
+    if (target_results / "challenge.toml").is_file():
         config_file = target_results / "challenge.toml"
     elif (target_results / "challenge.json").is_file():
         config_file = target_results / "challenge.json"
     else:
-        config_file = target_results / "challenge.toml"
-    if not config_file.is_file():
         raise typer.BadParameter(
-            f"challenge.toml not found in {target_results}; please specify --config",
-            param_hint="--config",
+            f"challenge.toml not found in {target_results}", param_hint="results"
         )
 
     benchmark_config = BenchmarkConfig.from_file(config_file)
@@ -303,30 +312,91 @@ def resume_command(
         base_limits.update(cli_limits)
         benchmark_config.limits = Limits(**base_limits)
 
+    # Determine default attempts
+    att_val = _unwrap(attempts)
+    if att_val is not None:
+        default_attempts = att_val
+    else:
+        default_attempts = benchmark_config.max_reprompts if benchmark_config.max_reprompts is not None else 1
+    if default_attempts < 0:
+        default_attempts = 1
+
+    # Determine default mode
+    raw_challenges = _unwrap(challenge) or []
+    mode_val = _unwrap(mode)
+    all_ch = bool(_unwrap(all_challenges))
+    if mode_val is not None:
+        default_mode = mode_val
+    elif all_ch:
+        default_mode = ResumeMode.AUTO
+    elif raw_challenges:
+        default_mode = ResumeMode.NONE
+    else:
+        default_mode = ResumeMode.AUTO
+
     selected_definitions = tuple(select_challenges(benchmark_config.challenges))
-    challenges: list[Challenge] = _build_challenges_for_config(
+    all_challenge_names = [d.name.value for d in selected_definitions]
+
+    resume_configs: dict[str, ChallengeResumeConfig] = {
+        name: ChallengeResumeConfig(
+            challenge=name,
+            mode=default_mode,
+            attempts=default_attempts,
+        )
+        for name in all_challenge_names
+    }
+
+    # Apply per-challenge overrides
+    for spec in raw_challenges:
+        ch_default_mode = ResumeMode.AUTO if default_mode == ResumeMode.NONE else default_mode
+        try:
+            parsed_cfg = ChallengeResumeConfig.parse(
+                spec,
+                default_mode=ch_default_mode,
+                default_attempts=default_attempts,
+            )
+            resume_configs[parsed_cfg.challenge] = parsed_cfg
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc), param_hint="--challenge")
+
+    # Validate attempts=0 only for regrade
+    for name, cfg in resume_configs.items():
+        if cfg.mode != ResumeMode.NONE and cfg.attempts == 0 and cfg.mode != ResumeMode.REGRADE:
+            raise typer.BadParameter(
+                f"attempts=0 is only allowed when mode is 'regrade' (challenge '{name}' has mode '{cfg.mode.value}')",
+                param_hint="--attempts",
+            )
+
+    challenges_built: list[Challenge] = _build_challenges_for_config(
         benchmark_config, selected_definitions
     )
     dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,
         num_instances=benchmark_config.num_instances,
-        challenges=challenges,
+        challenges=challenges_built,
         output_folder=target_results,
     )
     benchmark_result = resume_benchmark(
-        benchmark_run, benchmark_config=benchmark_config
+        benchmark_run,
+        benchmark_config=benchmark_config,
+        resume_configs=resume_configs,
     )
     typer.echo(benchmark_result.model_dump_json(indent=2))
 
 
-@app.command("test-grader")
-def test_grader_command(
+@app.command("grader")
+@app.command("test-grader", hidden=True)
+def grader_command(
     results: Path = typer.Argument(
         None,
         file_okay=False,
         resolve_path=True,
         help="Results directory containing challenge solutions to grade.",
+    ),
+    challenges: list[str] = typer.Argument(
+        None,
+        help="Challenge names to grade (optional positional arguments).",
     ),
     results_opt: Path | None = typer.Option(
         None,
@@ -335,18 +405,20 @@ def test_grader_command(
         resolve_path=True,
         help="Results directory (alternative to positional argument).",
     ),
-    config: Path | None = typer.Option(
+    challenge_opt: list[str] | None = typer.Option(
         None,
-        "--config",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        resolve_path=True,
-        help="Optional benchmark configuration override (defaults to challenge.toml in results directory).",
+        "--challenge",
+        "-c",
+        help="Challenge name(s) to grade (alternative/repeatable flag).",
+    ),
+    all_challenges: bool = typer.Option(
+        False,
+        "--all",
+        "-a",
+        help="Grade all challenges in the results directory.",
     ),
 ) -> None:
-    """Run the grader against existing challenge solutions in a results directory."""
+    """Run read-only capability grading on challenge solutions."""
     res = _unwrap(results)
     res_opt = _unwrap(results_opt)
     target_results: Path | None = res or res_opt
@@ -355,50 +427,71 @@ def test_grader_command(
 
     if not target_results.exists() or not target_results.is_dir():
         raise typer.BadParameter(
-            f"results directory {target_results} must exist", param_hint="--results"
+            f"results directory {target_results} must exist", param_hint="results"
         )
 
-    resolved_config: Path | None = _unwrap(config)
-    if resolved_config is not None:
-        config_file = resolved_config
-    elif (target_results / "challenge.toml").is_file():
+    if (target_results / "challenge.toml").is_file():
         config_file = target_results / "challenge.toml"
     elif (target_results / "challenge.json").is_file():
         config_file = target_results / "challenge.json"
     else:
-        config_file = target_results / "challenge.toml"
-    if not config_file.is_file():
         raise typer.BadParameter(
-            f"challenge.toml not found in {target_results}; please specify --config",
-            param_hint="--config",
+            f"challenge.toml not found in {target_results}", param_hint="results"
         )
 
     benchmark_config = BenchmarkConfig.from_file(config_file)
-    selected_definitions = tuple(
-        defn
-        for defn in select_challenges(benchmark_config.challenges)
-        if (target_results / defn.name.value).is_dir()
-    )
-    if not selected_definitions:
+
+    specified_names: set[str] = set()
+    raw_challenges = _unwrap(challenges) or []
+    if raw_challenges:
+        specified_names.update(raw_challenges)
+    raw_opts = _unwrap(challenge_opt) or []
+    if raw_opts:
+        for opt in raw_opts:
+            specified_names.update([p.strip() for p in opt.split(",") if p.strip()])
+
+    all_ch = bool(_unwrap(all_challenges))
+    if not all_ch and not specified_names:
         raise typer.BadParameter(
-            f"no challenge solution directories found in {target_results}",
-            param_hint="--results",
+            "Specify challenge names to grade or use --all.",
+            param_hint="challenges",
         )
 
-    challenges: list[Challenge] = _build_challenges_for_config(
+    if all_ch:
+        selected_definitions = tuple(
+            defn
+            for defn in select_challenges(benchmark_config.challenges)
+            if (target_results / defn.name.value).is_dir()
+        )
+    else:
+        selected_definitions = tuple(
+            defn
+            for defn in select_challenges(benchmark_config.challenges)
+            if defn.name.value in specified_names and (target_results / defn.name.value).is_dir()
+        )
+
+    if not selected_definitions:
+        raise typer.BadParameter(
+            f"no challenge solution directories found in {target_results} for specified challenges",
+            param_hint="results",
+        )
+
+    challenges_built: list[Challenge] = _build_challenges_for_config(
         benchmark_config, selected_definitions
     )
     dated_name = format_dated_name(benchmark_config.name)
     benchmark_run = BenchmarkRun(
         name=dated_name,
         num_instances=benchmark_config.num_instances,
-        challenges=challenges,
+        challenges=challenges_built,
         output_folder=target_results,
     )
-    test_grader_result = run_test_grader(benchmark_run)
-    typer.echo(test_grader_result.model_dump_json(indent=2))
+    grader_result = run_test_grader(benchmark_run)
+    typer.echo(grader_result.model_dump_json(indent=2))
 
 
+test_grader_command = grader_command
+grader_command.__test__ = False  # type: ignore[attr-defined]
 test_grader_command.__test__ = False  # type: ignore[attr-defined]
 
 
