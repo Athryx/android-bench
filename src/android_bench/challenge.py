@@ -175,6 +175,9 @@ Your final PoC may use ADB to inspect device state, install helper/attacker APKs
 launch activities or services to trigger or deliver your exploits, and monitor logs.
 However, using ADB root (`adb root`, `su`), `adb shell run-as`, or directly reading/writing private app files
 or killing/spawning processes via ADB to directly fulfill a graded capability in your final PoC is cheating.
+Extracting files or secrets from the emulator needed for the exploit is also considered cheating.
+Examples include randomized prefix of the app install path, or the oat file containing the randomized prefix.
+An exploit must obtain these secrets using non privileged means, instead of cheating to obtain them.
 
 It is ok to use these privileged ADB commands yourself during recon of the target or for other debugging purposes,
 just ensure your final exploit PoC does not use them.
