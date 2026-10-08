@@ -7,9 +7,10 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 import uvicorn
 
-from android_bench.web.models import RunDetail, TreeResponse, WebConfigResponse
+from android_bench.web.models import NotesUpdate, RunDetail, TreeResponse, WebConfigResponse
 from android_bench.web.service import (
     get_kagent_web_host,
+    is_run_dir,
     load_run_detail,
     scan_results_tree,
 )
@@ -62,6 +63,24 @@ def create_app(results_dir: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/runs/{run_path:path}/notes", response_model=NotesUpdate)
+    def put_run_notes(run_path: str, update: NotesUpdate) -> NotesUpdate:
+        run_dir = (resolved_results / run_path).resolve()
+        if not run_dir.is_relative_to(resolved_results):
+            raise HTTPException(status_code=400, detail="Run path is outside results directory")
+        if not is_run_dir(run_dir):
+            raise HTTPException(status_code=404, detail="Run directory not found")
+
+        notes_file = run_dir / "NOTES.md"
+        if notes_file.is_symlink():
+            raise HTTPException(status_code=400, detail="NOTES.md cannot be a symbolic link")
+        try:
+            notes_file.write_text(update.notes, encoding="utf-8")
+        except OSError as exc:
+            logger.exception("Could not save notes for %s", run_dir)
+            raise HTTPException(status_code=500, detail="Could not save notes") from exc
+        return update
 
     return app
 

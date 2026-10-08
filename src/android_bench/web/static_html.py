@@ -121,6 +121,10 @@ a { color: var(--link); }
 /* Summary-style notes and prose. */
 .notes-card { background: #14211f; border-left: 3px solid var(--accent); border-radius: 7px; padding: 18px 22px; }
 .notes-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: var(--accent); font-size: 18px; font-weight: 600; }
+.notes-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.notes-empty { color: var(--text-muted); font-size: 13px; }
+.notes-editor { width: 100%; min-height: 220px; padding: 12px; resize: vertical; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font: 13px/1.6 var(--font-mono); }
+.notes-error { margin-top: 8px; color: var(--red); font-size: 12px; }
 .notes-body { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
 .notes-body > :first-child { margin-top: 0; }
 .notes-body > :last-child { margin-bottom: 0; }
@@ -754,6 +758,80 @@ function renderUsageBanner(costUsd, tokenUsage, title) {
   `;
 }
 
+function renderNotesCard(run) {
+  const hasNotes = Boolean(run.notes && run.notes.trim());
+  return `
+    <div class="notes-card" id="notesCard">
+      <div class="notes-header">
+        <span>Run notes</span>
+        <div class="notes-actions">
+          ${hasNotes ? `<button class="btn btn-sm" onclick="copyText(currentRunDetail.notes, 'Notes copied')">Copy Raw Notes</button>` : ''}
+          <button class="btn btn-sm" onclick="editNotes()">${hasNotes ? 'Edit Notes' : 'Create Notes'}</button>
+        </div>
+      </div>
+      ${hasNotes ? `<div class="notes-body">${renderMarkdown(run.notes)}</div>` : '<div class="notes-empty">No notes yet.</div>'}
+    </div>
+  `;
+}
+
+function editNotes() {
+  if (!currentRunDetail) return;
+  const card = document.getElementById('notesCard');
+  card.innerHTML = `
+    <div class="notes-header">
+      <span>Run notes</span>
+      <div class="notes-actions">
+        <button class="btn btn-sm" id="cancelNotesButton" onclick="cancelNotesEdit()">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="finishNotesButton" onclick="finishNotesEdit()">Finish</button>
+      </div>
+    </div>
+    <textarea class="notes-editor" id="notesEditor" aria-label="Run notes Markdown" placeholder="Write Markdown notes here..."></textarea>
+    <div class="notes-error" id="notesError" role="alert" hidden></div>
+  `;
+  const editor = document.getElementById('notesEditor');
+  editor.value = currentRunDetail.notes || '';
+  editor.focus();
+}
+
+function cancelNotesEdit() {
+  document.getElementById('notesCard').outerHTML = renderNotesCard(currentRunDetail);
+}
+
+async function finishNotesEdit() {
+  const runPath = selectedRunPath;
+  const notes = document.getElementById('notesEditor').value;
+  const button = document.getElementById('finishNotesButton');
+  const cancelButton = document.getElementById('cancelNotesButton');
+  const error = document.getElementById('notesError');
+  button.disabled = true;
+  cancelButton.disabled = true;
+  error.hidden = true;
+
+  try {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runPath)}/notes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    if (!response.ok) {
+      const failure = await response.json();
+      throw new Error(failure.detail || `HTTP ${response.status}`);
+    }
+    if (selectedRunPath === runPath) {
+      currentRunDetail.notes = (await response.json()).notes;
+      document.getElementById('notesCard').outerHTML = renderNotesCard(currentRunDetail);
+      showToast('Notes saved');
+    }
+  } catch (err) {
+    if (selectedRunPath === runPath) {
+      error.textContent = `Could not save notes: ${err.message}`;
+      error.hidden = false;
+      button.disabled = false;
+      cancelButton.disabled = false;
+    }
+  }
+}
+
 function renderRunDetail(run) {
   document.getElementById('emptyView').style.display = 'none';
   const content = document.getElementById('runContent');
@@ -769,19 +847,6 @@ function renderRunDetail(run) {
   let scoreClass = 'pill-failed';
   if (scoreNum >= 0.99) scoreClass = 'pill-completed';
   else if (scoreNum > 0) scoreClass = 'pill-partial';
-
-  let notesHtml = '';
-  if (run.notes && run.notes.trim()) {
-    notesHtml = `
-      <div class="notes-card">
-        <div class="notes-header">
-          <span>Run notes</span>
-          <button class="btn btn-sm" onclick="copyText(currentRunDetail.notes, 'Notes copied')">Copy Raw Notes</button>
-        </div>
-        <div class="notes-body">${renderMarkdown(run.notes)}</div>
-      </div>
-    `;
-  }
 
   // Tags
   const cfg = run.config || {};
@@ -1073,7 +1138,7 @@ function renderRunDetail(run) {
     </div>
 
     <!-- Notes Section -->
-    ${notesHtml}
+    ${renderNotesCard(run)}
 
     <!-- Challenges Overview Table -->
     ${overviewTableHtml}

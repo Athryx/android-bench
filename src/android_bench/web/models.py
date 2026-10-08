@@ -111,6 +111,10 @@ class RunDetail(BaseModel):
     challenges: list[ChallengeDetail] = Field(default_factory=list)
 
 
+class NotesUpdate(BaseModel):
+    notes: str
+
+
 class WebConfigResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

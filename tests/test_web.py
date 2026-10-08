@@ -450,6 +450,45 @@ def test_web_ui_markdown_export_modal(tmp_path: Path) -> None:
     assert 'function switchExportTab(' in text
 
 
+def test_web_notes_create_and_edit(tmp_path: Path) -> None:
+    run_dir = tmp_path / "group" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "challenge.toml").write_text('name = "notes_test"\n')
+    client = TestClient(create_app(tmp_path))
+    url = "/api/runs/group%2Frun/notes"
+
+    assert client.get("/api/runs/group%2Frun").json()["notes"] is None
+
+    created = client.put(url, json={"notes": "# First notes\nA detail.\n"})
+    assert created.status_code == 200
+    assert created.json() == {"notes": "# First notes\nA detail.\n"}
+    assert (run_dir / "NOTES.md").read_text() == "# First notes\nA detail.\n"
+    assert client.get("/api/runs/group%2Frun").json()["notes"] == "# First notes\nA detail.\n"
+
+    edited = client.put(url, json={"notes": "## Updated\n- item\n"})
+    assert edited.status_code == 200
+    assert (run_dir / "NOTES.md").read_text() == "## Updated\n- item\n"
+    assert client.get("/api/runs/group%2Frun").json()["notes"] == "## Updated\n- item\n"
+
+
+def test_web_notes_reject_invalid_targets(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "challenge.toml").write_text('name = "notes_test"\n')
+    (tmp_path / "plain_folder").mkdir()
+    client = TestClient(create_app(tmp_path))
+
+    assert client.put("/api/runs/plain_folder/notes", json={"notes": "x"}).status_code == 404
+    assert client.put("/api/runs/missing/notes", json={"notes": "x"}).status_code == 404
+    assert client.put("/api/runs/%2E%2E%2Foutside/notes", json={"notes": "x"}).status_code == 400
+
+    other_file = tmp_path / "other.md"
+    other_file.write_text("keep me")
+    (run_dir / "NOTES.md").symlink_to(other_file)
+    assert client.put("/api/runs/run/notes", json={"notes": "x"}).status_code == 400
+    assert other_file.read_text() == "keep me"
+
+
 def test_web_ui_resume_modal(tmp_path: Path) -> None:
     app = create_app(tmp_path)
     client = TestClient(app)
@@ -479,6 +518,4 @@ def test_web_ui_resume_modal(tmp_path: Path) -> None:
     assert 'function copyResumeCommand(' in text
     assert 'function toggleResumeRelativePath(' in text
     assert 'function toggleResumeUvPrefix(' in text
-
-
 
