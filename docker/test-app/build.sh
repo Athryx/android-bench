@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-output=${1:?output APK path is required}
 app_dir=$(cd "$(dirname "$0")" && pwd)
+output=${1:-${app_dir}/../../challenges/apps/test_app.apk}
 build_dir=$(mktemp -d -t android-bench-test-app.XXXXXX)
 trap 'rm -rf "${build_dir}"' EXIT
 android_jar=${ANDROID_SDK_ROOT}/platforms/android-35/android.jar

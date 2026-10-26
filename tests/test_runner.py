@@ -84,6 +84,7 @@ def test_run_challenge_passes_internet_setting_to_sandbox(tmp_path: Path) -> Non
         internet_enabled=True,
         extra_hosts={"api.openai.com": "127.0.0.1"},
         apps_to_install=(),
+        load_template_apps=True,
     )
     mount = cls.call_args.args[3][0]
     assert mount.src_folder == tmp_path / "internet-test" / "solution"
@@ -92,18 +93,25 @@ def test_run_challenge_passes_internet_setting_to_sandbox(tmp_path: Path) -> Non
     assert not (mount.src_folder / "results.toml").exists()
 
 
-def test_run_challenge_passes_test_app_installation_to_sandbox(tmp_path: Path) -> None:
-    from android_bench.catalog import TEST_APP_INSTALL_PATH, TEST_CHALLENGES
+@pytest.mark.parametrize("resume", [False, True])
+def test_run_challenge_passes_test_app_installation_to_sandbox(
+    tmp_path: Path, resume: bool
+) -> None:
+    from android_bench.catalog import load_catalog
+
+    definition = load_catalog().by_name["test_all"].model_copy(
+        update={"load_template_apps": False, "cuttlefish_template": "custom-template"}
+    )
     from android_bench.challenge import AndroidAppChallenge
 
     state = MagicMock(spec=GlobalRunState)
     state.solutions_folder = tmp_path
     state.run_group = MagicMock()
     challenge = MagicMock(spec=AndroidAppChallenge)
-    challenge.definition = TEST_CHALLENGES[-1]
+    challenge.definition = definition
     challenge.name = "test_all"
     challenge.tag = "android-bench-test-all:latest"
-    challenge.cuttlefish_template = "challenge6"
+    challenge.cuttlefish_template = definition.cuttlefish_template
     challenge.internet_enabled = False
     challenge.model_config = ModelConfig(model=Model.GPT_6_ASTRA)
     challenge.system_prompt.return_value = "test prompt"
@@ -114,10 +122,38 @@ def test_run_challenge_passes_test_app_installation_to_sandbox(tmp_path: Path) -
     sandbox.sandbox = MagicMock()
     sandbox.container_adb_host = "cuttlefish:6000"
 
-    with patch("android_bench.runner.AndroidBenchSandbox", return_value=sandbox) as cls:
-        run_challenge(state, challenge)
+    from android_bench.models import ChallengeResumeConfig, ResumeMode
+    from android_bench.runner import resume_challenge
 
-    assert cls.call_args.kwargs["apps_to_install"] == (TEST_APP_INSTALL_PATH,)
+    if resume:
+        challenge_dir = tmp_path / challenge.name
+        challenge_dir.mkdir()
+        previous = AndroidChallengeResult(
+            challenge=challenge.name, status="running", session_id="previous-session"
+        )
+        (challenge_dir / "results.toml").write_text(previous.model_dump_toml())
+    agent = MagicMock()
+    agent.session_id = "previous-session"
+    with (
+        patch("android_bench.runner.AndroidBenchSandbox", return_value=sandbox) as cls,
+        patch("kexploit_agent.BaseAgent.resume", return_value=agent),
+    ):
+        if resume:
+            resume_challenge(
+                state,
+                challenge,
+                ChallengeResumeConfig(
+                    challenge=challenge.name, mode=ResumeMode.KEEP_GOING, attempts=1
+                ),
+            )
+        else:
+            run_challenge(state, challenge)
+
+    if resume:
+        assert cls.call_args.kwargs["existing_sandbox"] is agent.sandbox
+    assert cls.call_args.kwargs["apps_to_install"] == ("/challenge/test_app.apk",)
+    assert cls.call_args.kwargs["load_template_apps"] is False
+    assert cls.call_args.args[2] == "custom-template"
 
 
 def test_run_challenge_copies_agent_history(tmp_path: Path) -> None:

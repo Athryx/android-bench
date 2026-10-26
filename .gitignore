@@ -12,7 +12,8 @@ wheels/
 .env.*
 !.env.example
 
-apps/*
-!apps/test_app.apk
+challenges/apps/*
+challenges/
+!challenges/apps/test_app.apk
 runs/
 results/

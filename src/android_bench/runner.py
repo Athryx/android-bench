@@ -199,6 +199,11 @@ def run_challenge(state: GlobalRunState, challenge: Challenge) -> ChallengeResul
         name=challenge.name,
         internet_enabled=challenge.internet_enabled,
         extra_hosts={model_config.resolved_api_host: model_config.resolved_guest_addr},
+        load_template_apps=(
+            challenge.definition.load_template_apps
+            if isinstance(challenge, AndroidAppChallenge)
+            else True
+        ),
         apps_to_install=(
             challenge.definition.apps_to_install
             if isinstance(challenge, AndroidAppChallenge)
@@ -519,6 +524,11 @@ def resume_challenge(
         internet_enabled=challenge.internet_enabled,
         extra_hosts={model_config.resolved_api_host: model_config.resolved_guest_addr},
         existing_sandbox=existing_sb,
+        load_template_apps=(
+            challenge.definition.load_template_apps
+            if isinstance(challenge, AndroidAppChallenge)
+            else True
+        ),
         apps_to_install=(
             challenge.definition.apps_to_install
             if isinstance(challenge, AndroidAppChallenge)

@@ -6,22 +6,56 @@ from pathlib import Path
 from typing import Any
 
 import typer
+import tomli_w
 from dotenv import load_dotenv
 from kbench import BenchmarkRun, Challenge
 from kexploit_agent import Limits
 from ksandbox.logging_utils import configure_logging
 
-from android_bench.catalog import ChallengeDefinition, select_challenges
+from android_bench.catalog import ChallengeDefinition, load_catalog
 from android_bench.challenge import AndroidAppChallenge
 from android_bench.config import BenchmarkConfig
 from android_bench.docker import setup_images
-from android_bench.models import ChallengeResumeConfig, ResumeMode
+from android_bench.grade_poc import run_grade_poc
+from android_bench.models import Capability, ChallengeResumeConfig, ResumeMode
 from android_bench.runner import (
     resume_benchmark,
     run_benchmark,
     run_grader,
     run_test_grader,
 )
+
+
+def _select_definitions(
+    benchmark_config: BenchmarkConfig,
+    catalog: Path | None,
+    results: Path | None = None,
+) -> tuple[ChallengeDefinition, ...]:
+    snapshot = results / "catalog" if results is not None else None
+    source = catalog
+    if source is None and snapshot is not None and snapshot.is_dir():
+        source = snapshot
+    try:
+        loaded = load_catalog(source)
+        names = (
+            [cfg.name for cfg in benchmark_config.challenge_configs]
+            if benchmark_config.challenges is not None else None
+        )
+        return loaded.select(names)
+    except (OSError, ValueError) as error:
+        raise typer.BadParameter(str(error), param_hint="--catalog") from error
+
+
+def _save_catalog(
+    results: Path, definitions: tuple[ChallengeDefinition, ...]
+) -> None:
+    snapshot = results / "catalog"
+    snapshot.mkdir(exist_ok=True)
+    for definition in definitions:
+        data = definition.model_dump(mode="json", exclude_none=True)
+        (snapshot / f"{definition.name}.toml").write_text(
+            tomli_w.dumps(data), encoding="utf-8"
+        )
 
 
 def _build_challenges_for_config(
@@ -85,9 +119,14 @@ def format_dated_name(base_name: str, now: datetime | None = None) -> str:
 
 
 @app.command()
-def setup() -> None:
-    """Build the shared tool image and all 12 challenge images."""
-    setup_images()
+def setup(
+    catalog: Path | None = typer.Option(
+        None, "--catalog", exists=True, file_okay=False, resolve_path=True,
+        help="Challenge catalog directory (default: repository challenges/).",
+    ),
+) -> None:
+    """Build the shared tool image and all images in the selected catalog."""
+    setup_images(load_catalog(_unwrap(catalog)).definitions)
 
 
 @app.command("run")
@@ -135,6 +174,10 @@ def run_command(
         "--notes",
         help="Optional notes describing this benchmark run (saved to NOTES.md).",
     ),
+    catalog: Path | None = typer.Option(
+        None, "--catalog", exists=True, file_okay=False, resolve_path=True,
+        help="Challenge catalog directory (default: repository challenges/; saved catalog on resume/grading).",
+    ),
 ) -> None:
     """Run the configured subset, or all challenges when omitted."""
     if results.exists() and any(results.iterdir()):
@@ -169,14 +212,14 @@ def run_command(
         base_limits.update(cli_limits)
         benchmark_config.limits = Limits(**base_limits)
 
+    selected_definitions = _select_definitions(benchmark_config, _unwrap(catalog))
     results.mkdir(parents=True, exist_ok=True)
+    _save_catalog(results, selected_definitions)
     (results / "challenge.toml").write_text(benchmark_config.formatted_toml())
     if notes_val is not None and str(notes_val).strip():
         (results / "NOTES.md").write_text(str(notes_val).strip() + "\n", encoding="utf-8")
 
     dated_name = format_dated_name(benchmark_config.name)
-
-    selected_definitions = tuple(select_challenges(benchmark_config.challenges))
     challenges: list[Challenge] = _build_challenges_for_config(
         benchmark_config, selected_definitions
     )
@@ -256,6 +299,10 @@ def resume_command(
         "--notes",
         help="Optional notes to save or append to NOTES.md in results directory.",
     ),
+    catalog: Path | None = typer.Option(
+        None, "--catalog", exists=True, file_okay=False, resolve_path=True,
+        help="Challenge catalog directory (default: repository challenges/; saved catalog on resume/grading).",
+    ),
 ) -> None:
     """Resume an existing benchmark run."""
     res = _unwrap(results)
@@ -334,8 +381,10 @@ def resume_command(
     else:
         default_mode = ResumeMode.AUTO
 
-    selected_definitions = tuple(select_challenges(benchmark_config.challenges))
-    all_challenge_names = [d.name.value for d in selected_definitions]
+    selected_definitions = _select_definitions(
+        benchmark_config, _unwrap(catalog), target_results
+    )
+    all_challenge_names = [d.name for d in selected_definitions]
 
     resume_configs: dict[str, ChallengeResumeConfig] = {
         name: ChallengeResumeConfig(
@@ -385,6 +434,25 @@ def resume_command(
     typer.echo(benchmark_result.model_dump_json(indent=2))
 
 
+@app.command("grade-poc")
+def grade_poc_command(
+    adb: str = typer.Option(..., "--adb", help="Existing Cuttlefish ADB address (host:port)."),
+    capability: Capability = typer.Option(..., "--capability", help="Capability to grade."),
+    poc: Path = typer.Option(
+        ..., "--poc", exists=True, dir_okay=False, resolve_path=True,
+        help="Local executable PoC; grade-poc.toml beside it specifies the target package.",
+    ),
+) -> None:
+    """Grade one PoC locally. Requires root adbd; clears target/grader app data."""
+    try:
+        result = run_grade_poc(adb, capability, poc)
+    except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+        typer.echo(f"Grading error: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(result.model_dump_json(indent=2))
+    raise typer.Exit(code=0 if result.passed else 1)
+
+
 @app.command("grader")
 @app.command("test-grader", hidden=True)
 def grader_command(
@@ -416,6 +484,10 @@ def grader_command(
         "--all",
         "-a",
         help="Grade all challenges in the results directory.",
+    ),
+    catalog: Path | None = typer.Option(
+        None, "--catalog", exists=True, file_okay=False, resolve_path=True,
+        help="Challenge catalog directory (default: repository challenges/; saved catalog on resume/grading).",
     ),
 ) -> None:
     """Run read-only capability grading on challenge solutions."""
@@ -457,18 +529,12 @@ def grader_command(
             param_hint="challenges",
         )
 
-    if all_ch:
-        selected_definitions = tuple(
-            defn
-            for defn in select_challenges(benchmark_config.challenges)
-            if (target_results / defn.name.value).is_dir()
-        )
-    else:
-        selected_definitions = tuple(
-            defn
-            for defn in select_challenges(benchmark_config.challenges)
-            if defn.name.value in specified_names and (target_results / defn.name.value).is_dir()
-        )
+    definitions = _select_definitions(benchmark_config, _unwrap(catalog), target_results)
+    selected_definitions = tuple(
+        definition for definition in definitions
+        if (all_ch or definition.name in specified_names)
+        and (target_results / definition.name).is_dir()
+    )
 
     if not selected_definitions:
         raise typer.BadParameter(

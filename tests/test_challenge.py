@@ -5,9 +5,11 @@ import pytest
 from kbench import ChallengeInstance
 from kexploit_agent import HarnessType, Model, ModelConfig
 
-from android_bench.catalog import CHALLENGES
+from android_bench.catalog import load_catalog
 from android_bench.challenge import AndroidAppChallenge
 from android_bench.models import AttemptRecord, Capability, CapabilityReview, CapabilityResult
+
+CHALLENGES = load_catalog().defaults
 
 
 class FakeAgent:
@@ -99,6 +101,28 @@ def test_mismatch_reprompts_and_regrades_fresh(
     )
     assert any("reprompt agent run started (attempt=2)" in message for message in messages)
     assert any("grading attempt 2 completed" in message for message in messages)
+
+
+def test_challenge_uses_catalog_identity_template_and_artifact_basename(tmp_path: Path) -> None:
+    artifact = tmp_path / "nested" / "target.xapk"
+    definition = CHALLENGES[0].model_copy(
+        update={
+            "name": "custom-challenge",
+            "docker_tag": "custom-image:tag",
+            "cuttlefish_template": "custom-template",
+            "artifact": artifact,
+        }
+    )
+    challenge = AndroidAppChallenge(
+        definition, ModelConfig(model=Model.GPT_6_ASTRA), HarnessType.CODEX
+    )
+
+    assert challenge.name == "custom-challenge"
+    assert challenge.tag == "custom-image:tag"
+    assert challenge.cuttlefish_template == "custom-template"
+    prompt = challenge.system_prompt("cuttlefish:6000")
+    assert "Analysis artifact: /challenge/target.xapk" in prompt
+    assert str(artifact) not in prompt
 
 
 def test_resume_after_clean_grade_does_not_reprompt(tmp_path: Path) -> None:
@@ -225,13 +249,13 @@ def test_enabled_capabilities_filters_capability_folders(tmp_path: Path) -> None
 
 
 def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_path: Path) -> None:
-    from android_bench.catalog import TEST_CHALLENGES, ChallengeName
-
-    test_by_name = {ch.name: ch for ch in TEST_CHALLENGES}
+    test_by_name = {
+        ch.name: ch for ch in load_catalog().definitions if not ch.default_enabled
+    }
 
     # Test single grader: code execution
     ch_exec = AndroidAppChallenge(
-        test_by_name[ChallengeName.TEST_CODE_EXECUTION],
+        test_by_name["test_code_execution"],
         ModelConfig(model=Model.GPT_6_ASTRA),
         HarnessType.CODEX,
     )
@@ -254,7 +278,7 @@ def test_test_challenges_prompt_documents_vulnerability_and_filters_graders(tmp_
 
     # Test test_all: all 5 graders enabled
     ch_all = AndroidAppChallenge(
-        test_by_name[ChallengeName.TEST_ALL],
+        test_by_name["test_all"],
         ModelConfig(model=Model.GPT_6_ASTRA),
         HarnessType.CODEX,
     )

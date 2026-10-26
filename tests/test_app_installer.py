@@ -1,6 +1,10 @@
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
+from zipfile import ZipFile
+
+import pytest
 
 from android_bench.catalog import repository_root
 
@@ -14,24 +18,27 @@ def load_installer() -> ModuleType:
     return module
 
 
-def test_shareit_bundle_selects_one_abi_and_one_language() -> None:
+def test_bundle_selects_one_abi_and_one_language(tmp_path: Path) -> None:
     installer = load_installer()
-    archive_path = next(
-        path
-        for path in (repository_root() / "apps").glob("*.apkm")
-        if path.name.startswith("com.lenovo.anyshare")
-    )
-    from zipfile import ZipFile
+    archive_path = tmp_path / "bundle.apkm"
+    with ZipFile(archive_path, "w") as archive:
+        for name in (
+            "base.apk",
+            "split_config.arm64_v8a.apk",
+            "split_config.armeabi_v7a.apk",
+            "split_Admob.config.en.apk",
+            "split_Admob.config.de.apk",
+        ):
+            archive.writestr(name, b"fixture APK")
 
     with ZipFile(archive_path) as archive:
         selected = installer.selected_apk_names(archive.namelist(), "arm64_v8a")
 
-    assert "base.apk" in selected
-    assert "split_config.arm64_v8a.apk" in selected
-    assert all("armeabi_v7a" not in name for name in selected)
-    assert all(not name.endswith(".de.apk") for name in selected)
-    assert "split_Admob.config.en.apk" in selected
-    assert len(selected) < 30
+    assert selected == [
+        "base.apk",
+        "split_Admob.config.en.apk",
+        "split_config.arm64_v8a.apk",
+    ]
 
 
 def test_bundle_selector_keeps_density_and_feature_splits() -> None:
@@ -71,3 +78,57 @@ def test_installation_candidates_adds_missing_challenge_artifact(
         bulk_app,
         challenge_target,
     ]
+
+
+@pytest.mark.parametrize("suffix", [".apk", ".apkm", ".xapk"])
+def test_explicit_install_only_uses_requested_artifact(tmp_path: Path, suffix: str) -> None:
+    installer = load_installer()
+    artifact = tmp_path / f"target{suffix}"
+    artifact.touch()
+    with (
+        patch.object(installer.sys, "argv", ["installer", "device", str(artifact)]),
+        patch.object(installer, "APP_DIR", tmp_path),
+        patch.object(installer, "installation_candidates") as discover,
+        patch.object(installer, "run_adb", return_value="arm64-v8a,armeabi-v7a\n") as adb,
+        patch.object(installer, "install_archive") as archive,
+    ):
+        installer.main()
+
+    discover.assert_not_called()
+    if suffix == ".apk":
+        adb.assert_any_call("device", "install", "-t", "-r", str(artifact))
+        archive.assert_not_called()
+    else:
+        archive.assert_called_once_with("device", artifact, "arm64_v8a")
+    assert artifact.exists()
+
+
+def test_installer_without_paths_preserves_discovery(tmp_path: Path) -> None:
+    installer = load_installer()
+    artifact = tmp_path / "app.apk"
+    artifact.touch()
+    with (
+        patch.object(installer.sys, "argv", ["installer", "device"]),
+        patch.object(installer, "installation_candidates", return_value=[artifact]) as discover,
+        patch.object(installer, "run_adb", return_value="arm64-v8a\n") as adb,
+    ):
+        installer.main()
+
+    discover.assert_called_once_with()
+    adb.assert_any_call("device", "install", "-t", "-r", str(artifact))
+
+
+@pytest.mark.parametrize("basename", ["missing.apk", "unsupported.txt"])
+def test_installer_rejects_invalid_explicit_artifact(tmp_path: Path, basename: str) -> None:
+    installer = load_installer()
+    artifact = tmp_path / basename
+    if artifact.suffix == ".txt":
+        artifact.touch()
+    with (
+        patch.object(installer.sys, "argv", ["installer", "device", str(artifact)]),
+        patch.object(installer, "run_adb") as adb,
+    ):
+        with pytest.raises((FileNotFoundError, ValueError)):
+            installer.main()
+
+    adb.assert_not_called()

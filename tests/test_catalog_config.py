@@ -3,29 +3,88 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from android_bench.catalog import (
-    CHALLENGES,
-    ChallengeName,
-    repository_root,
-    select_challenges,
-)
+from android_bench.catalog import load_catalog, repository_root
 from android_bench.config import BenchmarkConfig
-from android_bench.docker import validate_artifacts
+
+CHALLENGES = load_catalog().defaults
+ALL_CHALLENGES = load_catalog().definitions
+TEST_CHALLENGES = tuple(item for item in ALL_CHALLENGES if not item.default_enabled)
 
 
-def test_all_twelve_artifacts_and_dockerfiles_exist() -> None:
+def test_repository_catalog_loads_without_requiring_private_artifacts() -> None:
     assert len(CHALLENGES) == 12
     assert len({item.name for item in CHALLENGES}) == 12
     assert len({item.package for item in CHALLENGES}) == 12
-    validate_artifacts()
-    assert all(item.dockerfile_path.is_file() for item in CHALLENGES)
+    assert all(isinstance(item.artifact, Path) for item in CHALLENGES)
+    assert all(item.artifact.is_absolute() for item in CHALLENGES)
+    assert all(item.default_enabled for item in CHALLENGES)
     assert all(item.apps_to_install == () for item in CHALLENGES)
 
 
 def test_select_defaults_to_every_challenge_and_preserves_selection_order() -> None:
-    assert select_challenges(None) == CHALLENGES
-    selected = select_challenges([ChallengeName.VLC, ChallengeName.FIREFOX])
-    assert [item.name for item in selected] == [ChallengeName.VLC, ChallengeName.FIREFOX]
+    assert load_catalog().select(None) == CHALLENGES
+    selected = load_catalog().select(["vlc", "firefox"])
+    assert [item.name for item in selected] == ["vlc", "firefox"]
+
+
+def test_custom_catalog_resolves_paths_and_excludes_disabled_defaults(tmp_path: Path) -> None:
+    (tmp_path / "a.toml").write_text(
+        'name = "custom"\nartifact = "apps/missing.apk"\npackage = "com.custom"\n'
+        'install_app = true\ncuttlefish_template = "custom-template"\n'
+        'load_template_apps = false\nenabled_capabilities = ["file_write"]\n'
+    )
+    (tmp_path / "b.toml").write_text(
+        'name = "optional"\nartifact = "other.apk"\npackage = "com.optional"\n'
+        'default_enabled = false\ndocker_tag = "custom:tag"\n'
+    )
+
+    catalog = load_catalog(tmp_path)
+    assert [item.name for item in catalog.defaults] == ["custom"]
+    custom = catalog.by_name["custom"]
+    assert custom.artifact == tmp_path / "apps/missing.apk"
+    assert not custom.artifact.exists()
+    assert custom.apps_to_install == ("/challenge/missing.apk",)
+    assert custom.cuttlefish_template == "custom-template"
+    assert not custom.load_template_apps
+    assert catalog.by_name["optional"].docker_tag == "custom:tag"
+    assert [item.name for item in catalog.select(["optional", "custom"])] == [
+        "optional", "custom",
+    ]
+
+
+@pytest.mark.parametrize("names", [[], ["vlc", "vlc"], ["unknown"]])
+def test_catalog_rejects_invalid_selections(names: list[str]) -> None:
+    with pytest.raises(ValueError):
+        load_catalog().select(names)
+
+
+def test_catalog_rejects_duplicate_names(tmp_path: Path) -> None:
+    definition = 'name = "duplicate"\nartifact = "missing.apk"\npackage = "com.example"\n'
+    (tmp_path / "a.toml").write_text(definition)
+    (tmp_path / "b.toml").write_text(definition)
+    with pytest.raises(ValueError, match="Duplicate challenge name"):
+        load_catalog(tmp_path)
+
+
+def test_config_accepts_custom_names_until_catalog_resolution() -> None:
+    config = BenchmarkConfig.model_validate(
+        {
+            "name": "custom-run",
+            "challenges": ["not_in_repository_catalog"],
+            "harness": "codex",
+            "model_config": {"model": "gpt-6-astra"},
+        }
+    )
+    assert config.challenge_configs[0].name == "not_in_repository_catalog"
+    with pytest.raises(ValueError, match="Unknown challenge names"):
+        load_catalog().select([item.name for item in config.challenge_configs])
+
+
+def test_omitted_challenges_have_no_config_overrides() -> None:
+    config = BenchmarkConfig.model_validate(
+        {"name": "defaults", "harness": "codex", "model_config": {"model": "gpt-6-astra"}}
+    )
+    assert config.challenge_configs == []
 
 
 def test_config_parses_runtime_model(tmp_path: Path) -> None:
@@ -73,7 +132,7 @@ def test_example_config_uses_extended_model_fields() -> None:
 
 @pytest.mark.parametrize(
     "challenges",
-    [[], ["vlc", "vlc"], ["not_a_challenge"]],
+    [[], ["vlc", "vlc"]],
 )
 def test_config_rejects_invalid_challenge_lists(challenges: list[str]) -> None:
     with pytest.raises(ValidationError):
@@ -88,21 +147,14 @@ def test_config_rejects_invalid_challenge_lists(challenges: list[str]) -> None:
 
 
 def test_test_challenges_exist_and_configured_properly() -> None:
-    from android_bench.catalog import (
-        TEST_CHALLENGES,
-        TEST_APP_ARTIFACT,
-        TEST_APP_INSTALL_PATH,
-        TEST_APP_PACKAGE,
-    )
     from android_bench.models import Capability
 
     assert len(TEST_CHALLENGES) == 6
     for challenge in TEST_CHALLENGES:
-        assert challenge.artifact == TEST_APP_ARTIFACT
-        assert challenge.package == TEST_APP_PACKAGE
-        assert challenge.apps_to_install == (TEST_APP_INSTALL_PATH,)
-        assert challenge.artifact_path.is_file()
-        assert challenge.dockerfile_path.is_file()
+        assert challenge.artifact == repository_root() / "challenges/apps/test_app.apk"
+        assert challenge.package == "com.purdue.androidbench.testapp"
+        assert challenge.apps_to_install == ("/challenge/test_app.apk",)
+        assert not challenge.default_enabled
         assert challenge.vulnerability_details is not None
         assert "8888" in challenge.vulnerability_details
         assert "EXEC" in challenge.vulnerability_details
@@ -113,11 +165,11 @@ def test_test_challenges_exist_and_configured_properly() -> None:
 
     # Test single-grader challenges
     cap_map = {
-        ChallengeName.TEST_CODE_EXECUTION: Capability.CODE_EXECUTION,
-        ChallengeName.TEST_FILE_WRITE: Capability.FILE_WRITE,
-        ChallengeName.TEST_FILE_READ: Capability.FILE_READ,
-        ChallengeName.TEST_INTENT: Capability.INTENT,
-        ChallengeName.TEST_ASLR_LEAK: Capability.ASLR_LEAK,
+        "test_code_execution": Capability.CODE_EXECUTION,
+        "test_file_write": Capability.FILE_WRITE,
+        "test_file_read": Capability.FILE_READ,
+        "test_intent": Capability.INTENT,
+        "test_aslr_leak": Capability.ASLR_LEAK,
     }
     test_by_name = {ch.name: ch for ch in TEST_CHALLENGES}
     for name, expected_cap in cap_map.items():
@@ -125,7 +177,7 @@ def test_test_challenges_exist_and_configured_properly() -> None:
         assert ch.enabled_capabilities == (expected_cap,)
 
     # Test test_all challenge
-    test_all = test_by_name[ChallengeName.TEST_ALL]
+    test_all = test_by_name["test_all"]
     assert test_all.enabled_capabilities is not None
     assert set(test_all.enabled_capabilities) == set(Capability)
 
@@ -139,11 +191,11 @@ def test_config_accepts_test_challenges() -> None:
             "model_config": {"model": "gpt-6-astra"},
         }
     )
-    assert config.challenges == [ChallengeName.TEST_CODE_EXECUTION, ChallengeName.TEST_ALL]
-    selected = select_challenges(config.challenges)
+    assert config.challenges == ["test_code_execution", "test_all"]
+    selected = load_catalog().select([item.name for item in config.challenge_configs])
     assert [ch.name for ch in selected] == [
-        ChallengeName.TEST_CODE_EXECUTION,
-        ChallengeName.TEST_ALL,
+        "test_code_execution",
+        "test_all",
     ]
 
 
@@ -234,14 +286,14 @@ def test_config_parses_challenge_config_table(tmp_path: Path) -> None:
 
     c0 = config.challenges[0]
     assert isinstance(c0, ChallengeConfig)
-    assert c0.name == ChallengeName.ELEMENT
+    assert c0.name == "element"
     assert c0.capabilities == [Capability.CODE_EXECUTION, Capability.FILE_WRITE]
     assert c0.solutions_folder == (tmp_path / "seeds/element").resolve()
     assert c0.extra_prompt == "Custom instructions for element"
 
     c1 = config.challenges[1]
     assert isinstance(c1, ChallengeConfig)
-    assert c1.name == ChallengeName.VLC
+    assert c1.name == "vlc"
     assert c1.capabilities is None
     assert c1.solutions_folder is None
     assert c1.extra_prompt is None
@@ -249,8 +301,8 @@ def test_config_parses_challenge_config_table(tmp_path: Path) -> None:
     # Test challenge_configs property
     configs = config.challenge_configs
     assert len(configs) == 2
-    assert configs[0].name == ChallengeName.ELEMENT
-    assert configs[1].name == ChallengeName.VLC
+    assert configs[0].name == "element"
+    assert configs[1].name == "vlc"
 
 
 def test_config_parses_mixed_challenges_and_aliases() -> None:
@@ -274,9 +326,9 @@ def test_config_parses_mixed_challenges_and_aliases() -> None:
         }
     )
     assert config.challenges is not None
-    assert config.challenges[0] == ChallengeName.VLC
+    assert config.challenges[0] == "vlc"
     assert isinstance(config.challenges[1], ChallengeConfig)
-    assert config.challenges[1].name == ChallengeName.SHAREIT
+    assert config.challenges[1].name == "shareit"
     assert config.challenges[1].solutions_folder == Path("/tmp/shareit_seed")
     assert config.challenges[1].capabilities == [Capability.CODE_EXECUTION]
     assert config.challenges[1].extra_prompt == "Extra instructions"
@@ -284,9 +336,9 @@ def test_config_parses_mixed_challenges_and_aliases() -> None:
     # challenge_configs normalizes strings to ChallengeConfig
     cfgs = config.challenge_configs
     assert len(cfgs) == 2
-    assert cfgs[0].name == ChallengeName.VLC
+    assert cfgs[0].name == "vlc"
     assert cfgs[0].capabilities is None
-    assert cfgs[1].name == ChallengeName.SHAREIT
+    assert cfgs[1].name == "shareit"
     assert cfgs[1].capabilities == [Capability.CODE_EXECUTION]
 
 
@@ -331,15 +383,15 @@ def test_config_rejects_duplicate_challenges_with_mixed_types() -> None:
         )
 
 
-def test_select_challenges_handles_challenge_configs() -> None:
+def test_catalog_selection_uses_normalized_challenge_config_names() -> None:
     from android_bench.config import ChallengeConfig
 
     items = [
-        ChallengeName.VLC,
-        ChallengeConfig(name=ChallengeName.ELEMENT),
+        ChallengeConfig(name="vlc"),
+        ChallengeConfig(name="element"),
     ]
-    selected = select_challenges(items)
+    selected = load_catalog().select([item.name for item in items])
     assert len(selected) == 2
-    assert selected[0].name == ChallengeName.VLC
-    assert selected[1].name == ChallengeName.ELEMENT
+    assert selected[0].name == "vlc"
+    assert selected[1].name == "element"
 

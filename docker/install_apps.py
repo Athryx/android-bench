@@ -104,23 +104,31 @@ def installation_candidates(
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: android-bench-install-apps <adb-serial>")
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: android-bench-install-apps <adb-serial> [app-path ...]")
     serial = sys.argv[1]
+    explicit_paths = [Path(path) for path in sys.argv[2:]]
+    for path in explicit_paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"App artifact does not exist: {path}")
+        if path.suffix.lower() not in APP_SUFFIXES:
+            raise ValueError(f"Unsupported app artifact: {path}")
+    app_paths = explicit_paths or installation_candidates()
+
     run_adb(serial, "wait-for-device")
     abilist = run_adb(serial, "shell", "getprop", "ro.product.cpu.abilist").strip()
     primary_abi = abilist.split(",", 1)[0].replace("-", "_")
     if primary_abi not in ABIS:
         raise RuntimeError(f"unsupported Android primary ABI: {primary_abi!r}")
 
-    for app_path in installation_candidates():
+    for app_path in app_paths:
         suffix = app_path.suffix.lower()
         print(f"Installing {app_path.name}", flush=True)
         if suffix == ".apk":
             run_adb(serial, "install", "-t", "-r", str(app_path))
         elif suffix in {".xapk", ".apkm"}:
             install_archive(serial, app_path, primary_abi)
-        if app_path.parent == APP_DIR:
+        if not explicit_paths and app_path.parent == APP_DIR:
             app_path.unlink()
 
 

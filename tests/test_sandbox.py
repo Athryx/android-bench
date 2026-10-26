@@ -68,8 +68,10 @@ def test_stop_reraises_when_instance_is_still_visible() -> None:
         sandbox.stop()
 
 
+@pytest.mark.parametrize("load_template_apps", [True, False])
 def test_start_enables_solver_internet_when_requested(
     caplog: pytest.LogCaptureFixture,
+    load_template_apps: bool,
 ) -> None:
     container = MagicMock()
     container.running = True
@@ -94,6 +96,7 @@ def test_start_enables_solver_internet_when_requested(
         "challenge6",
         [],
         internet_enabled=True,
+        load_template_apps=load_template_apps,
     )
 
     with caplog.at_level("INFO", logger="android_bench.sandbox"):
@@ -108,7 +111,7 @@ def test_start_enables_solver_internet_when_requested(
     cuttle_client.start.assert_called_once_with(
         "challenge6",
         name=sandbox.cuttle_cli_instance_name,
-        load_apps=True,
+        load_apps=load_template_apps,
         unmanaged=True,
     )
     assert all(
@@ -184,3 +187,28 @@ def test_requested_app_installation_failure_is_reported() -> None:
 
     with pytest.raises(RuntimeError, match="INSTALL_FAILED_INVALID_APK"):
         sandbox._after_adb_connect()
+
+
+@pytest.mark.parametrize("suffix", [".apkm", ".xapk", ".XAPK"])
+def test_archive_installation_uses_bundled_installer(suffix: str) -> None:
+    app_path = f"/challenge/target{suffix}"
+    sandbox = AndroidBenchSandbox(
+        MagicMock(spec=GlobalRunState),
+        "android-bench:test",
+        "custom-template",
+        [],
+        apps_to_install=(app_path,),
+    )
+    container = MagicMock()
+    container.exec_sync.return_value = SimpleNamespace(
+        exit_code=0, stdout=b"Success\n", stderr=b""
+    )
+    sandbox.sandbox = container
+
+    sandbox._after_adb_connect()
+
+    assert sandbox.load_template_apps is True
+    container.exec_sync.assert_called_once_with(
+        ["/usr/local/bin/android-bench-install-apps", "cuttlefish:6000", app_path],
+        timeout_secs=120,
+    )

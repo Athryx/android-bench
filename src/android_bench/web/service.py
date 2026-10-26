@@ -8,7 +8,7 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
-from android_bench.catalog import CHALLENGE_BY_NAME, ChallengeName
+from android_bench.catalog import load_catalog
 from android_bench.models import CAPABILITY_WEIGHT, Capability
 from android_bench.trace import TranscriptParser
 from android_bench.web.models import (
@@ -322,6 +322,19 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
             if c_name:
                 challenge_configs_by_name[c_name] = item if isinstance(item, dict) else {"name": c_name}
 
+    catalog_dir = run_dir / "catalog"
+    try:
+        catalog = load_catalog(catalog_dir if catalog_dir.is_dir() else None)
+        definitions_by_name = catalog.by_name
+        if catalog_dir.is_dir() and not challenge_configs_by_name:
+            challenge_configs_by_name = {
+                definition.name: {"name": definition.name}
+                for definition in catalog.definitions
+            }
+    except (OSError, ValueError):
+        logger.warning("Could not load challenge catalog for %s", run_dir, exc_info=True)
+        definitions_by_name = {}
+
     # Build challenges list
     challenges_map: dict[str, dict[str, Any]] = {}
     if results_dict and isinstance(results_dict.get("results"), dict):
@@ -515,12 +528,7 @@ def load_run_detail(root_dir: Path, rel_path: str) -> RunDetail:
         # Determine configured / enabled capabilities for this challenge
         configured_caps: list[str] = []
         ch_cfg = challenge_configs_by_name.get(ch_name)
-        ch_def = CHALLENGE_BY_NAME.get(ch_name)
-        if ch_def is None:
-            try:
-                ch_def = CHALLENGE_BY_NAME.get(ChallengeName(ch_name))
-            except (ValueError, KeyError):
-                ch_def = None
+        ch_def = definitions_by_name.get(ch_name)
 
         if "enabled_capabilities" in data and isinstance(data["enabled_capabilities"], list):
             configured_caps = [str(c) for c in data["enabled_capabilities"]]

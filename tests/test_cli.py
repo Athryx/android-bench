@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from android_bench.catalog import CHALLENGES
+import pytest
+
+from android_bench.catalog import load_catalog
 from android_bench.cli import (
     callback,
     format_dated_name,
@@ -12,6 +14,7 @@ from android_bench.cli import (
     web_command,
 )
 
+CHALLENGES = load_catalog().defaults
 
 
 def test_callback_loads_dotenv() -> None:
@@ -46,12 +49,12 @@ def test_run_applies_global_internet_setting_to_every_challenge(
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:2]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:2]),
         patch(
             "android_bench.cli.run_benchmark", return_value=benchmark_result
         ) as run_benchmark,
     ):
-        run_command(config, tmp_path / "results")
+        run_command(config=config, results=tmp_path / "results")
 
     run = run_benchmark.call_args.args[0]
     assert len(run.challenges) == 2
@@ -72,7 +75,7 @@ def test_test_grader_command_filters_challenges_and_dispatches(tmp_path: Path) -
         }"""
     )
     # Create folder for only the first challenge
-    first_ch = CHALLENGES[0].name.value
+    first_ch = CHALLENGES[0].name
     (results_dir / first_ch).mkdir()
 
     stub_result = type(
@@ -82,12 +85,12 @@ def test_test_grader_command_filters_challenges_and_dispatches(tmp_path: Path) -
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:3]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:3]),
         patch(
             "android_bench.cli.run_test_grader", return_value=stub_result
         ) as run_test_grader_mock,
     ):
-        test_grader_command(results_dir, all_challenges=True)
+        test_grader_command(results=results_dir, all_challenges=True)
 
     run_test_grader_mock.assert_called_once()
     run_arg = run_test_grader_mock.call_args.args[0]
@@ -106,7 +109,7 @@ def test_test_grader_command_with_explicit_challenges(tmp_path: Path) -> None:
           "model_config": {"model": "gpt-6-astra"}
         }"""
     )
-    first_ch = CHALLENGES[0].name.value
+    first_ch = CHALLENGES[0].name
     (results_dir / first_ch).mkdir()
 
     stub_result = type(
@@ -116,12 +119,12 @@ def test_test_grader_command_with_explicit_challenges(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:3]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:3]),
         patch(
             "android_bench.cli.run_test_grader", return_value=stub_result
         ) as run_test_grader_mock,
     ):
-        test_grader_command(results_dir, challenges=[first_ch])
+        test_grader_command(results=results_dir, challenges=[first_ch])
 
     run_test_grader_mock.assert_called_once()
     run_arg = run_test_grader_mock.call_args.args[0]
@@ -135,21 +138,21 @@ def test_test_grader_command_validates_results_dir(tmp_path: Path) -> None:
 
     non_existent = tmp_path / "does_not_exist"
     with pytest.raises(typer.BadParameter, match="results directory .* must exist"):
-        test_grader_command(non_existent)
+        test_grader_command(results=non_existent)
 
     empty_dir = tmp_path / "empty_results"
     empty_dir.mkdir()
     with pytest.raises(typer.BadParameter, match="challenge.toml not found"):
-        test_grader_command(empty_dir)
+        test_grader_command(results=empty_dir)
 
     (empty_dir / "challenge.json").write_text(
         '{"name": "test", "harness": "codex", "model_config": {"model": "gpt-6-astra"}}'
     )
     with pytest.raises(typer.BadParameter, match="Specify challenge names to grade or use --all"):
-        test_grader_command(empty_dir)
+        test_grader_command(results=empty_dir)
 
     with pytest.raises(typer.BadParameter, match="no challenge solution directories found"):
-        test_grader_command(empty_dir, all_challenges=True)
+        test_grader_command(results=empty_dir, all_challenges=True)
 
 
 def test_run_command_writes_challenge_toml(tmp_path: Path) -> None:
@@ -171,10 +174,10 @@ def test_run_command_writes_challenge_toml(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch("android_bench.cli.run_benchmark", return_value=stub_result),
     ):
-        run_command(config, results_dir)
+        run_command(config=config, results=results_dir)
 
     assert (results_dir / "challenge.toml").is_file()
     assert "write-config-smoke" in (results_dir / "challenge.toml").read_text()
@@ -194,7 +197,7 @@ def test_run_command_standard_run_rejects_non_empty_results(tmp_path: Path) -> N
     (non_empty / "some_file.txt").write_text("hello")
 
     with pytest.raises(typer.BadParameter, match="results directory .* must be empty"):
-        run_command(config, non_empty)
+        run_command(config=config, results=non_empty)
 
 
 def test_setup_command() -> None:
@@ -202,7 +205,7 @@ def test_setup_command() -> None:
 
     with patch("android_bench.cli.setup_images") as mock_setup_images:
         setup()
-        mock_setup_images.assert_called_once()
+        mock_setup_images.assert_called_once_with(load_catalog().definitions)
 
 
 def test_run_command_applies_cli_limits_override(tmp_path: Path) -> None:
@@ -228,14 +231,14 @@ def test_run_command_applies_cli_limits_override(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch(
             "android_bench.cli.run_benchmark", return_value=benchmark_result
         ) as run_benchmark_mock,
     ):
         run_command(
-            config,
-            tmp_path / "results",
+            config=config,
+            results=tmp_path / "results",
             token_limit=15000,
             time_limit=300.0,
             dollar_limit=2.5,
@@ -273,7 +276,7 @@ def test_cli_runner_with_limits_flags(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch(
             "android_bench.cli.run_benchmark", return_value=benchmark_result
         ) as run_benchmark_mock,
@@ -356,7 +359,7 @@ def test_resume_cli_uses_challenge_json(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch(
             "android_bench.cli.resume_benchmark", return_value=stub_result
         ) as resume_benchmark_mock,
@@ -393,7 +396,7 @@ def test_resume_cli_with_limits(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch(
             "android_bench.cli.resume_benchmark", return_value=stub_result
         ) as resume_benchmark_mock,
@@ -443,14 +446,14 @@ def test_resume_cli_challenge_spec_and_modes(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:3]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:3]),
         patch(
             "android_bench.cli.resume_benchmark", return_value=stub_result
         ) as resume_benchmark_mock,
     ):
         runner = CliRunner()
-        first_ch = CHALLENGES[0].name.value
-        second_ch = CHALLENGES[1].name.value
+        first_ch = CHALLENGES[0].name
+        second_ch = CHALLENGES[1].name
         res = runner.invoke(
             app,
             [
@@ -472,7 +475,7 @@ def test_resume_cli_challenge_spec_and_modes(tmp_path: Path) -> None:
     assert resume_configs[second_ch].mode == ResumeMode.KEEP_GOING
     assert resume_configs[second_ch].attempts == 2
     # Unmentioned 3rd challenge should have mode == NONE
-    third_ch = CHALLENGES[2].name.value
+    third_ch = CHALLENGES[2].name
     assert resume_configs[third_ch].mode == ResumeMode.NONE
 
 
@@ -499,14 +502,14 @@ def test_resume_cli_all_with_exclusion(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:2]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:2]),
         patch(
             "android_bench.cli.resume_benchmark", return_value=stub_result
         ) as resume_benchmark_mock,
     ):
         runner = CliRunner()
-        first_ch = CHALLENGES[0].name.value
-        second_ch = CHALLENGES[1].name.value
+        first_ch = CHALLENGES[0].name
+        second_ch = CHALLENGES[1].name
         res = runner.invoke(
             app,
             [
@@ -547,7 +550,7 @@ def test_resume_cli_rejects_zero_attempts_on_non_regrade(tmp_path: Path) -> None
             "resume",
             str(results),
             "--challenge",
-            f"{CHALLENGES[0].name.value},mode=keep-going,attempts=0",
+            f"{CHALLENGES[0].name},mode=keep-going,attempts=0",
         ],
     )
     assert res.exit_code != 0
@@ -569,7 +572,7 @@ def test_grader_cli_subcommand(tmp_path: Path) -> None:
           "model_config": {"model": "gpt-6-astra"}
         }"""
     )
-    first_ch = CHALLENGES[0].name.value
+    first_ch = CHALLENGES[0].name
     (results / first_ch).mkdir()
 
     stub_result = type(
@@ -579,7 +582,7 @@ def test_grader_cli_subcommand(tmp_path: Path) -> None:
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch("android_bench.cli.run_test_grader", return_value=stub_result) as run_grader_mock,
     ):
         runner = CliRunner()
@@ -617,12 +620,12 @@ def test_run_command_names_run_with_date_and_time_to_minute(tmp_path: Path) -> N
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch(
             "android_bench.cli.run_benchmark", return_value=benchmark_result
         ) as run_benchmark_mock,
     ):
-        run_command(config, tmp_path / "results")
+        run_command(config=config, results=tmp_path / "results")
 
     run = run_benchmark_mock.call_args.args[0]
     # Check that the run name matches: <name> (<Month> <day>, <year>, <HH:MM>)
@@ -632,7 +635,7 @@ def test_run_command_names_run_with_date_and_time_to_minute(tmp_path: Path) -> N
 
 def test_cli_builds_challenges_with_custom_overrides(tmp_path: Path) -> None:
     from android_bench.cli import _build_challenges_for_config
-    from android_bench.catalog import CHALLENGE_BY_NAME, ChallengeName
+    CHALLENGE_BY_NAME = load_catalog().by_name
     from android_bench.config import BenchmarkConfig
     from android_bench.models import Capability
 
@@ -656,8 +659,8 @@ def test_cli_builds_challenges_with_custom_overrides(tmp_path: Path) -> None:
     )
 
     definitions = (
-        CHALLENGE_BY_NAME[ChallengeName.ELEMENT],
-        CHALLENGE_BY_NAME[ChallengeName.VLC],
+        CHALLENGE_BY_NAME["element"],
+        CHALLENGE_BY_NAME["vlc"],
     )
     challenges = _build_challenges_for_config(config, definitions)
     assert len(challenges) == 2
@@ -672,7 +675,7 @@ def test_cli_builds_challenges_with_custom_overrides(tmp_path: Path) -> None:
     # vlc challenge (default)
     ch1 = challenges[1]
     assert ch1.name == "vlc"
-    assert ch1.enabled_capabilities == CHALLENGE_BY_NAME[ChallengeName.VLC].enabled_capabilities
+    assert ch1.enabled_capabilities == CHALLENGE_BY_NAME["vlc"].enabled_capabilities
     assert ch1.solutions_folder is None
     assert ch1.extra_prompt is None
 
@@ -695,10 +698,10 @@ def test_run_command_writes_notes(tmp_path: Path) -> None:
     results_dir = tmp_path / "results_notes"
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch("android_bench.cli.run_benchmark", return_value=benchmark_result),
     ):
-        run_command(config, results_dir, notes="Investigating privilege escalation")
+        run_command(config=config, results=results_dir, notes="Investigating privilege escalation")
 
     assert (results_dir / "NOTES.md").is_file()
     assert "Investigating privilege escalation" in (results_dir / "NOTES.md").read_text(encoding="utf-8")
@@ -723,15 +726,96 @@ model = "gpt-6-astra"
     )()
 
     with (
-        patch("android_bench.cli.select_challenges", return_value=CHALLENGES[:1]),
+        patch("android_bench.cli._select_definitions", return_value=CHALLENGES[:1]),
         patch("android_bench.cli.resume_benchmark", return_value=benchmark_result),
     ):
-        resume_command(results_dir, notes="Resuming after timeout fix")
+        resume_command(results=results_dir, notes="Resuming after timeout fix")
 
     content = (results_dir / "NOTES.md").read_text(encoding="utf-8")
     assert "Initial notes." in content
     assert "Resume Notes" in content
     assert "Resuming after timeout fix" in content
+
+
+def test_custom_catalog_run_snapshots_definitions_for_resume_and_grader(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+
+    catalog = tmp_path / "custom-catalog"
+    catalog.mkdir()
+    definition = catalog / "custom.toml"
+    definition.write_text(
+        'name = "custom_app"\nartifact = "apps/custom.apk"\npackage = "com.custom"\n'
+        'enabled_capabilities = ["file_write"]\ninstall_app = true\n'
+    )
+    config = tmp_path / "benchmark.toml"
+    config.write_text(
+        'name = "custom-run"\nchallenges = ["custom_app"]\nharness = "codex"\n'
+        '[model_config]\nmodel = "gpt-6-astra"\n'
+    )
+    results = tmp_path / "results"
+    stub_result = type("ResultStub", (), {"model_dump_json": lambda self, indent: "{}"})()
+    runner = CliRunner()
+
+    with patch("android_bench.cli.run_benchmark", return_value=stub_result) as run:
+        result = runner.invoke(
+            app, ["run", "--catalog", str(catalog), "--config", str(config), "--results", str(results)]
+        )
+    assert result.exit_code == 0, result.output
+    assert run.call_args.args[0].challenges[0].name == "custom_app"
+    snapshot = load_catalog(results / "catalog")
+    assert snapshot.by_name["custom_app"].artifact == catalog / "apps/custom.apk"
+
+    # Neither resume nor grading should need the original catalog definitions.
+    definition.unlink()
+    with patch("android_bench.cli.resume_benchmark", return_value=stub_result) as resume:
+        result = runner.invoke(app, ["resume", str(results)])
+    assert result.exit_code == 0, result.output
+    assert resume.call_args.args[0].challenges[0].name == "custom_app"
+
+    (results / "custom_app").mkdir()
+    with patch("android_bench.cli.run_test_grader", return_value=stub_result) as grade:
+        result = runner.invoke(app, ["grader", str(results), "custom_app"])
+    assert result.exit_code == 0, result.output
+    assert grade.call_args.args[0].challenges[0].name == "custom_app"
+
+
+@pytest.mark.parametrize("command", ["setup", "run", "resume", "grader"])
+def test_cli_commands_advertise_catalog_option(command: str) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+
+    result = CliRunner().invoke(app, [command, "--help"])
+    assert result.exit_code == 0
+    assert "--catalog" in result.output
+
+
+def test_select_definitions_explicit_catalog_overrides_snapshot(tmp_path: Path) -> None:
+    from android_bench.cli import _save_catalog, _select_definitions
+    from android_bench.config import BenchmarkConfig
+
+    results = tmp_path / "results"
+    results.mkdir()
+    _save_catalog(results, CHALLENGES[:1])
+    config = BenchmarkConfig.model_validate(
+        {"name": "selection", "harness": "codex", "model_config": {"model": "gpt-6-astra"}}
+    )
+    assert _select_definitions(config, None, results) == CHALLENGES[:1]
+    assert _select_definitions(config, None) == CHALLENGES
+    assert _select_definitions(config, Path("challenges"), results) == CHALLENGES
+
+
+def test_setup_uses_custom_catalog(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from android_bench.cli import app
+
+    (tmp_path / "custom.toml").write_text(
+        'name = "custom_app"\nartifact = "missing.apk"\npackage = "com.custom"\n'
+    )
+    with patch("android_bench.cli.setup_images") as setup_images:
+        result = CliRunner().invoke(app, ["setup", "--catalog", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    setup_images.assert_called_once_with(load_catalog(tmp_path).definitions)
 
 
 def test_web_command_starts_server(tmp_path: Path) -> None:

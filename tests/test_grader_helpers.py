@@ -5,7 +5,14 @@ from typing import Any, cast
 
 import pytest
 
+from android_bench.catalog import load_catalog
 from android_bench.grader import extract_json_object
+
+CATALOG = load_catalog()
+CHALLENGES = CATALOG.defaults
+TEST_CHALLENGES = tuple(
+    definition for definition in CATALOG.definitions if not definition.default_enabled
+)
 
 
 def test_extract_json_object_accepts_incidental_text() -> None:
@@ -32,10 +39,12 @@ def test_capability_grade_not_attempted_has_no_findings() -> None:
 
 
 def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path: Path) -> None:
-    from android_bench.catalog import TEST_CHALLENGES
     from android_bench.grader import CapabilityReview, grade_attempt
     from android_bench.models import Capability, CapabilityResult
 
+    definition = CATALOG.by_name["test_all"].model_copy(
+        update={"cuttlefish_template": "custom-template", "load_template_apps": False}
+    )
     solution_dir = tmp_path / "solution"
     (solution_dir / "file_read").mkdir(parents=True)
     grader_dir = tmp_path / "grader"
@@ -92,6 +101,7 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
     sandbox_options: list[dict[str, Any]] = []
 
     def fake_android_sandbox(*args: Any, **kwargs: Any) -> Any:
+        assert args[2] == "custom-template"
         sandbox_mounts.extend(args[3])
         sandbox_options.append(kwargs)
         return nullcontext(fake_sandbox)
@@ -112,7 +122,7 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
 
     graded = grade_attempt(
         (cast(Any, state), solution_dir),
-        TEST_CHALLENGES[-1],
+        definition,
         "file read succeeded; no helper app or user interaction",
         1,
     )
@@ -123,7 +133,8 @@ def test_grade_attempt_uses_one_agent_per_capability(monkeypatch: Any, tmp_path:
         ("grader", False),
     ]
     assert sandbox_mounts[0].src_folder == solution_dir
-    assert sandbox_options[0]["apps_to_install"] == TEST_CHALLENGES[-1].apps_to_install
+    assert sandbox_options[0]["apps_to_install"] == definition.apps_to_install
+    assert sandbox_options[0]["load_template_apps"] is False
     assert "file_read" in agent_names[0]
     assert "file_write" in agent_names[1]
     assert "PoC folder: /data/solution/file_read" in prompts[0]
@@ -157,7 +168,6 @@ def test_graders_place_valid_executable_templates(tmp_path: Path) -> None:
 def test_deterministic_grader_handles_missing_poc_executables(tmp_path: Path) -> None:
     from unittest.mock import MagicMock
     from android_bench.grader import DeterministicGrader, GRADERS
-    from android_bench.catalog import CHALLENGES
 
     sandbox = MagicMock()
     docker_box = MagicMock()
@@ -179,7 +189,6 @@ def test_deterministic_grader_handles_missing_poc_executables(tmp_path: Path) ->
 def test_deterministic_grader_reports_missing_target_after_adb_root_disconnect() -> None:
     from unittest.mock import MagicMock
 
-    from android_bench.catalog import TEST_CHALLENGES
     from android_bench.grader import DeterministicGrader
 
     sandbox = MagicMock()
@@ -210,7 +219,6 @@ def test_deterministic_grader_reports_missing_target_after_adb_root_disconnect()
 
 def test_deterministic_grader_captures_logcat_on_failure() -> None:
     from unittest.mock import MagicMock
-    from android_bench.catalog import TEST_CHALLENGES
     from android_bench.grader import DeterministicGrader
 
     sandbox = MagicMock()

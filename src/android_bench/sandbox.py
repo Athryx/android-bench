@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import PurePosixPath
 from contextlib import suppress
 from typing import Self
 
@@ -27,6 +28,7 @@ class AndroidBenchSandbox(AdbSandbox):
         extra_hosts: dict[str, str] | None = None,
         existing_sandbox: DockerSandbox | None = None,
         apps_to_install: tuple[str, ...] = (),
+        load_template_apps: bool = True,
     ) -> None:
         super().__init__(
             state,
@@ -39,10 +41,11 @@ class AndroidBenchSandbox(AdbSandbox):
         )
         self.existing_sandbox = existing_sandbox
         self.apps_to_install = apps_to_install
+        self._load_template_apps = load_template_apps
 
     @property
     def load_template_apps(self) -> bool:
-        return True
+        return self._load_template_apps
 
     def _after_adb_connect(self) -> None:
         if not self.apps_to_install:
@@ -52,10 +55,17 @@ class AndroidBenchSandbox(AdbSandbox):
         prefix = f"Challenge '{self.name}': " if self.name else ""
         for apk_path in self.apps_to_install:
             logger.info("%sinstalling app on Cuttlefish (apk=%s)", prefix, apk_path)
-            result = self.sandbox.exec_sync(
-                ["adb", "-s", self.container_adb_host, "install", "-r", "-g", apk_path],
-                timeout_secs=120,
-            )
+            if PurePosixPath(apk_path).suffix.lower() in {".apkm", ".xapk"}:
+                command = [
+                    "/usr/local/bin/android-bench-install-apps",
+                    self.container_adb_host,
+                    apk_path,
+                ]
+            else:
+                command = [
+                    "adb", "-s", self.container_adb_host, "install", "-r", "-g", apk_path,
+                ]
+            result = self.sandbox.exec_sync(command, timeout_secs=120)
             if result.exit_code != 0:
                 output = (result.stdout + result.stderr).decode(errors="replace").strip()
                 raise RuntimeError(f"failed to install {apk_path}: {output}")

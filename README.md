@@ -18,17 +18,17 @@ Requirements:
 The CLI automatically loads these values from a `.env` file in the project or
 an ancestor directory. Existing process environment variables take precedence.
 
-Populate `apps/` with the 12 Challenge 6.1 APK/APKM/XAPK artifacts before
+Populate `challenges/apps/` with the 12 Challenge 6.1 APK/APKM/XAPK artifacts before
 setup. In the Purdue research checkout used for this benchmark:
 
 ```sh
-mkdir -p apps
-cp -a /home/jack/Documents/college/purdue/research/challenge6/challenge-6.1/apps/. apps/
+mkdir -p challenges/apps
+cp -a /home/jack/Documents/college/purdue/research/challenge6/challenge-6.1/apps/. challenges/apps/
 ```
 
 The app bundles are intentionally not tracked because two exceed GitHub's
-per-file size limit. Their exact filenames are validated against the challenge
-catalog during setup.
+per-file size limit. Setup validates the artifact paths in the selected challenge
+catalog; simply loading a catalog does not require the artifacts to exist.
 
 Build the common analysis image and all challenge-specific images:
 
@@ -41,6 +41,46 @@ The UV source configuration tracks the `main` branch for KBench, KExploit Agent,
 KExploit Utils, Cuttle CLI, and Cuttle Types, each from its repository subdirectory. The lockfile
 records the exact resolved commit for reproducible installs.
 
+## Challenge catalogs
+
+The default catalog is `challenges/`. Each top-level `*.toml` file defines one
+challenge; artifact paths are relative to that file, not the working directory.
+For example, `challenges/custom.toml` can contain:
+
+```toml
+name = "custom"
+artifact = "apps/custom.apk"
+package = "com.example.custom"
+enabled_capabilities = ["code_execution", "file_write"]
+install_app = true
+cuttlefish_template = "challenge6"
+load_template_apps = true
+default_enabled = true
+# Optional; otherwise a tag is generated from the challenge name:
+# docker_tag = "android-bench-custom:latest"
+```
+
+`enabled_capabilities` selects the graders for this app. `install_app` installs
+the artifact on solver and grader emulators instead of relying only on template
+apps. `cuttlefish_template` and `load_template_apps` control emulator creation.
+`default_enabled = false` keeps a definition available for explicit selection but
+excludes it when the benchmark config omits `challenges`; the six synthetic test
+challenges use this setting. Challenge names are strings resolved against the
+selected catalog, so custom names need no Python enum or source-code changes.
+Images are generated from definitions and artifacts; no per-challenge Dockerfile
+is needed.
+
+Use `--catalog /path/to/catalog` on `setup`, `run`, `resume`, or `grader` to select
+a different folder. A run writes resolved selected definitions to
+`<results>/catalog/*.toml`, including absolute artifact paths. Resume and grading
+prefer this snapshot unless `--catalog` explicitly overrides it. Keep the
+referenced artifacts available when moving or resuming results.
+
+```sh
+uv run android-bench setup --catalog challenges/
+uv run android-bench run --catalog challenges/ --config benchmark_config.toml --results results/
+```
+
 ## Run
 
 Copy and edit `benchmark_config.example.toml`, then run:
@@ -49,7 +89,8 @@ Copy and edit `benchmark_config.example.toml`, then run:
 uv run android-bench run --config benchmark_config.toml --results results/
 ```
 
-Omit `challenges` to run all 12, or select a subset by registry name:
+Omit `challenges` to run the catalog's default-enabled definitions (the 12
+Challenge 6.1 apps in the repository catalog), or select a subset by name:
 
 ```toml
 name = "challenge-6.1-eval"
@@ -145,7 +186,10 @@ To resume an interrupted benchmark run or continue working on challenges:
 uv run android-bench resume results/ [OPTIONS]
 ```
 
-Configuration and default `max_reprompts` are loaded directly from `<results>/challenge.toml`. No external config files are required.
+Configuration and default `max_reprompts` are loaded directly from `<results>/challenge.toml`.
+Resolved challenge definitions are loaded from `<results>/catalog/` when present;
+older results without a snapshot use the default catalog. No external benchmark
+config file is required.
 
 Global options:
 - `--all`, `-a`: Resume all challenges (alias for setting default mode to `auto`).
@@ -197,7 +241,10 @@ Dedicated test challenges are available to verify each grader individually, as w
 - `test_aslr_leak`: Grades only leaking the ASLR base address of libc.so.
 - `test_all`: Enables and grades all 5 capabilities.
 
-These challenges use a vulnerable test app (`com.purdue.androidbench.testapp`, `apps/test_app.apk`, built from `docker/test-app/`) with an intentional backdoor TCP socket service on port 8888. The solver agent's prompt automatically documents the vulnerability, how to start the app and port-forward the socket via ADB, and the socket command protocol.
+These challenges use a vulnerable test app (`com.purdue.androidbench.testapp`, `challenges/apps/test_app.apk`, built from `docker/test-app/`) with an intentional backdoor TCP socket service on port 8888. The solver agent's prompt automatically documents the vulnerability, how to start the app and port-forward the socket via ADB, and the socket command protocol.
+
+Build the synthetic APK with `docker/test-app/build.sh` (requires
+`ANDROID_SDK_ROOT`); its default output is `challenges/apps/test_app.apk`.
 
 To run a test challenge:
 ```toml

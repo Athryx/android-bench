@@ -65,15 +65,15 @@ class AndroidAppChallenge(Challenge):
 
     @property
     def name(self) -> str:
-        return self.definition.name.value
+        return self.definition.name
 
     @property
     def tag(self) -> str:
-        return self.definition.docker_tag.value
+        return self.definition.docker_tag
 
     @property
     def cuttlefish_template(self) -> str:
-        return "challenge6"
+        return self.definition.cuttlefish_template
 
     @property
     def internet_enabled(self) -> bool:
@@ -125,7 +125,7 @@ class AndroidAppChallenge(Challenge):
                 grader.place_template(solution_folder, self.definition.package)
 
     def system_prompt(self, adb_host: str) -> str:
-        artifact = f"/challenge/{self.definition.artifact}"
+        artifact = f"/challenge/{self.definition.artifact.name}"
         if self.internet_enabled:
             internet_status = (
                 "The solver sandbox has general Internet access. You may use Internet access for "

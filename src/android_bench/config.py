@@ -15,14 +15,13 @@ from pydantic import (
 )
 import tomli_w
 
-from android_bench.catalog import ChallengeName
 from android_bench.models import Capability
 
 
 class ChallengeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: ChallengeName
+    name: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
     capabilities: list[Capability] | None = None
     solutions_folder: Path | None = Field(
         default=None,
@@ -52,7 +51,7 @@ class BenchmarkConfig(BaseModel):
 
     name: str = Field(min_length=1)
     num_instances: int | None = Field(default=None, ge=1)
-    challenges: list[ChallengeName | ChallengeConfig] | None = None
+    challenges: list[str | ChallengeConfig] | None = None
     harness: HarnessType
     internet_enabled: bool = False
     summarize: bool = False
@@ -86,8 +85,8 @@ class BenchmarkConfig(BaseModel):
     @field_validator("challenges")
     @classmethod
     def reject_empty_or_duplicate_challenges(
-        cls, value: list[ChallengeName | ChallengeConfig] | None
-    ) -> list[ChallengeName | ChallengeConfig] | None:
+        cls, value: list[str | ChallengeConfig] | None
+    ) -> list[str | ChallengeConfig] | None:
         if value is not None and not value:
             raise ValueError("challenges must be omitted or contain at least one challenge")
         if value is not None:
@@ -102,9 +101,7 @@ class BenchmarkConfig(BaseModel):
     @property
     def challenge_configs(self) -> list[ChallengeConfig]:
         if self.challenges is None:
-            from android_bench.catalog import CHALLENGES
-
-            return [ChallengeConfig(name=d.name) for d in CHALLENGES]
+            return []
         return [
             item if isinstance(item, ChallengeConfig) else ChallengeConfig(name=item)
             for item in self.challenges
