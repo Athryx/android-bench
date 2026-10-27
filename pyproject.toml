@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 android-bench = "android_bench:main"
+grade-poc = "android_bench.grade_poc_cli:main"
 
 [dependency-groups]
 dev = [

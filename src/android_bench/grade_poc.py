@@ -16,6 +16,8 @@ from android_bench.docker import grader_apk_path
 from android_bench.grader import GRADERS, DeterministicGrader
 from android_bench.models import Capability, CapabilityResult
 
+TEMPLATE_PACKAGE = "com.example.target"
+
 
 class PocTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +60,29 @@ class LocalExecutor:
 class LocalAdbSandbox:
     container_adb_host: str
     sandbox: LocalExecutor
+
+
+def create_poc_template(capability: Capability, path: Path) -> tuple[Path, Path, bool]:
+    """Create an executable PoC and, when absent, a target configuration beside it."""
+    path = path.resolve()
+    if path.exists():
+        raise FileExistsError(f"PoC already exists: {path}")
+
+    config_path = path.parent / "grade-poc.toml"
+    if config_path.exists():
+        with config_path.open("rb") as config_file:
+            target = PocTarget.model_validate(tomllib.load(config_file))
+        created_config = False
+    else:
+        target = PocTarget(package=TEMPLATE_PACKAGE)
+        created_config = True
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if created_config:
+        config_path.write_text(f'package = "{target.package}"\n', encoding="utf-8")
+    path.write_text(GRADERS[capability].template_content(target.package), encoding="utf-8")
+    path.chmod(path.stat().st_mode | 0o111)
+    return path, config_path, created_config
 
 
 def run_grade_poc(adb_target: str, capability: Capability, poc: Path) -> CapabilityResult:

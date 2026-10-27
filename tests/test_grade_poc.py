@@ -8,8 +8,8 @@ import pytest
 from ksandbox import ExecResult
 from typer.testing import CliRunner
 
-from android_bench.cli import app
 from android_bench.grade_poc import LocalExecutor, run_grade_poc
+from android_bench.grade_poc_cli import app
 from android_bench.grader import GRADERS, DeterministicGrader
 from android_bench.models import Capability, CapabilityResult
 
@@ -122,9 +122,9 @@ def test_grade_poc_cli(
     monkeypatch: pytest.MonkeyPatch, poc: Path, passed: bool, exit_code: int,
 ) -> None:
     run = Mock(return_value=CapabilityResult(passed=passed, detail="test result"))
-    monkeypatch.setattr("android_bench.cli.run_grade_poc", run)
+    monkeypatch.setattr("android_bench.grade_poc_cli.run_grade_poc", run)
     result = CliRunner().invoke(app, [
-        "grade-poc", "--adb", "localhost:6520", "--capability", "file_read", "--poc", str(poc),
+        "run", "--adb", "localhost:6520", "--capability", "file_read", "--poc", str(poc),
     ])
     assert result.exit_code == exit_code, result.output
     assert '"detail": "test result"' in result.stdout
@@ -132,9 +132,9 @@ def test_grade_poc_cli(
 
 
 def test_grade_poc_cli_reports_setup_error(monkeypatch: pytest.MonkeyPatch, poc: Path) -> None:
-    monkeypatch.setattr("android_bench.cli.run_grade_poc", Mock(side_effect=RuntimeError("no device")))
+    monkeypatch.setattr("android_bench.grade_poc_cli.run_grade_poc", Mock(side_effect=RuntimeError("no device")))
     result = CliRunner().invoke(app, [
-        "grade-poc", "--adb", "localhost:6520", "--capability", "file_read", "--poc", str(poc),
+        "run", "--adb", "localhost:6520", "--capability", "file_read", "--poc", str(poc),
     ])
     assert result.exit_code == 2
     assert "Grading error: no device" in result.stderr
@@ -142,6 +142,36 @@ def test_grade_poc_cli_reports_setup_error(monkeypatch: pytest.MonkeyPatch, poc:
 
 def test_grade_poc_cli_rejects_unknown_capability(poc: Path) -> None:
     result = CliRunner().invoke(app, [
-        "grade-poc", "--adb", "localhost:6520", "--capability", "unknown", "--poc", str(poc),
+        "run", "--adb", "localhost:6520", "--capability", "unknown", "--poc", str(poc),
     ])
     assert result.exit_code == 2
+
+
+@pytest.mark.parametrize("capability", list(Capability))
+def test_template_creates_executable_and_config(tmp_path: Path, capability: Capability) -> None:
+    poc = tmp_path / capability.value / "poc"
+    result = CliRunner().invoke(app, ["template", "--capability", capability.value, str(poc)])
+    assert result.exit_code == 0, result.output
+    assert poc.is_file() and poc.stat().st_mode & 0o111
+    assert "# PoC Template:" in poc.read_text()
+    assert (poc.parent / "grade-poc.toml").read_text() == 'package = "com.example.target"\n'
+    assert "Set the target package" in result.stdout
+
+
+def test_template_uses_existing_config_and_preserves_poc(tmp_path: Path) -> None:
+    config = tmp_path / "grade-poc.toml"
+    config.write_text('package = "org.example.victim"\n')
+    poc = tmp_path / "poc"
+    args = ["template", "--capability", "file_read", str(poc)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "org.example.victim" in poc.read_text()
+    assert "Set the target package" not in result.stdout
+    assert CliRunner().invoke(app, args).exit_code == 2
+    assert config.read_text() == 'package = "org.example.victim"\n'
+
+
+def test_template_rejects_unknown_capability(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["template", "--capability", "unknown", str(tmp_path / "poc")])
+    assert result.exit_code == 2
+    assert not (tmp_path / "poc").exists()

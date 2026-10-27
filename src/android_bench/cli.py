@@ -16,8 +16,7 @@ from android_bench.catalog import ChallengeDefinition, load_catalog
 from android_bench.challenge import AndroidAppChallenge
 from android_bench.config import BenchmarkConfig
 from android_bench.docker import setup_images
-from android_bench.grade_poc import run_grade_poc
-from android_bench.models import Capability, ChallengeResumeConfig, ResumeMode
+from android_bench.models import ChallengeResumeConfig, ResumeMode
 from android_bench.runner import (
     resume_benchmark,
     run_benchmark,
@@ -432,25 +431,6 @@ def resume_command(
         resume_configs=resume_configs,
     )
     typer.echo(benchmark_result.model_dump_json(indent=2))
-
-
-@app.command("grade-poc")
-def grade_poc_command(
-    adb: str = typer.Option(..., "--adb", help="Existing Cuttlefish ADB address (host:port)."),
-    capability: Capability = typer.Option(..., "--capability", help="Capability to grade."),
-    poc: Path = typer.Option(
-        ..., "--poc", exists=True, dir_okay=False, resolve_path=True,
-        help="Local executable PoC; grade-poc.toml beside it specifies the target package.",
-    ),
-) -> None:
-    """Grade one PoC locally. Requires root adbd; clears target/grader app data."""
-    try:
-        result = run_grade_poc(adb, capability, poc)
-    except (OSError, ValueError, RuntimeError, TimeoutError) as error:
-        typer.echo(f"Grading error: {error}", err=True)
-        raise typer.Exit(code=2) from error
-    typer.echo(result.model_dump_json(indent=2))
-    raise typer.Exit(code=0 if result.passed else 1)
 
 
 @app.command("grader")
